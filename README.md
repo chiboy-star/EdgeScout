@@ -129,3 +129,4 @@ EdgeScout strictly evaluates model quality using proper probabilistic scoring ru
 2. **Multiclass Brier Score:** Measures the mean squared deviation between predicted probability vectors and one-hot outcomes.
 3. **Probability Calibration (Reliability Diagram & ECE):** Verifies that among events assigned an $x\%$ probability, approximately $x\%$ occur in reality.
 4. **Closing Line Value (CLV):** Quantifies whether odds taken beat the sharp closing market ($CLV = \frac{\text{Odds}_{\text{taken}}}{\text{Odds}_{\text{closing}}} - 1$). Consistently beating the closing line is the empirical gold standard for predictive edge.
+

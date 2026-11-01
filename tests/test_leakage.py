@@ -21,20 +21,22 @@ def create_synthetic_matches(n_matches: int = 50, start_date: str = "2023-01-01"
         m_date = base + timedelta(days=i * 2)
         h_idx = i % len(teams)
         a_idx = (i + 1) % len(teams)
+        season = "1213" if i < 40 else ("1314" if i < 80 else "1415")
         records.append({
             "match_id": f"test_match_{i:04d}",
             "match_date": m_date.strftime("%Y-%m-%d"),
             "match_time": "15:00",
             "league_code": "E0",
             "league_name": "Premier League",
-            "season": "2324",
+            "season": season,
             "home_team": teams[h_idx],
             "away_team": teams[a_idx],
             "fthg": (i % 3),
             "ftag": ((i + 1) % 3),
             "ftr": "H" if (i % 3) > ((i + 1) % 3) else ("A" if ((i + 1) % 3) > (i % 3) else "D"),
             "b365_h": 2.10, "b365_d": 3.30, "b365_a": 3.50,
-            "b365_ch": 2.10, "b365_cd": 3.30, "b365_ca": 3.50
+            "b365_ch": 2.10, "b365_cd": 3.30, "b365_ca": 3.50,
+            "ps_ch": 2.10, "ps_cd": 3.30, "ps_ca": 3.50
         })
     return pd.DataFrame(records)
 
@@ -102,13 +104,12 @@ def test_walk_forward_backtest_temporal_integrity():
     """
     df = create_synthetic_matches(120, start_date="2023-01-01")
     engine = WalkForwardBacktest(
-        devig_method="shin",
-        odds_source="b365",
+        burn_in_seasons=["1213"], # Use first season as burn-in
         step_days=14,
-        min_train_matches=30,
-        train_window_days=365
+        train_window_days=365,
+        devig_method="shin"
     )
     
-    results = engine.run(df)
-    assert results["total_folds"] > 0
-    assert results["total_matches_evaluated"] > 0
+    results = engine.run_league(df, "E0")
+    assert results["folds_count"] > 0
+    assert results["evaluated_count"] > 0

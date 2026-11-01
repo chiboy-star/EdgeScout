@@ -89,7 +89,13 @@ class TierThresholds(BaseModel):
     longshot_min_odds: float = 5.0
     longshot_fixed_stake_fraction: float = 0.005 # 0.5% bankroll cap for longshots
 
-# Backtest Default Parameters
-DEFAULT_SEASONS = ["2122", "2223", "2324", "2425"]
+# Backtest Default Parameters: 13 seasons from 2012/13 to 2024/25
+EXTENDED_SEASONS = [
+    "1213", "1314", "1415", "1516", "1617", 
+    "1718", "1819", "1920", "2021", "2122", 
+    "2223", "2324", "2425"
+]
+BURN_IN_SEASONS = ["1213", "1314"] # 2 full burn-in seasons before evaluation
+DEFAULT_SEASONS = EXTENDED_SEASONS
 DEFAULT_EDGE_THRESHOLDS = [0.02, 0.03, 0.05, 0.08, 0.10]
 

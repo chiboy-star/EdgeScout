@@ -63,14 +63,14 @@ def cmd_backtest(args):
     print(f"Loaded {len(matches_df):,} clean matches for backtesting.")
     
     engine = WalkForwardBacktest(
-        devig_method=args.devig,
-        odds_source=args.odds_source,
+        burn_in_seasons=["1213", "1314"],
         step_days=args.step_days,
-        min_train_matches=args.min_train,
-        train_window_days=args.train_window
+        train_window_days=args.train_window,
+        devig_method=args.devig
     )
 
-    results = engine.run(matches_df)
+    leagues_to_run = [args.league] if args.league else ["E0", "SP1", "I1", "D1", "F1"]
+    results = engine.run_all_leagues(matches_df, leagues=leagues_to_run)
 
     # Output ASCII Report
     ascii_rep = generate_ascii_report(results)
@@ -78,7 +78,11 @@ def cmd_backtest(args):
 
     # Generate Calibration Plot
     plot_path = PLOTS_DIR / "calibration_plot.png"
-    generate_calibration_plot(results['calibration_table'], output_path=plot_path)
+    generate_calibration_plot(
+        results['calibration']['raw_table'], 
+        results['calibration']['calibrated_table'],
+        output_path=plot_path
+    )
     print(f"Calibration plot saved to: {plot_path}")
 
     # Generate Markdown Report

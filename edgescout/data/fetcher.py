@@ -76,88 +76,19 @@ class DataFetcher:
 
     def fetch_champions_league(self, season: str) -> pd.DataFrame:
         """
-        Ingests Champions League match results from openfootball archives
-        and generates cached raw CSV in data/raw/{season}_CL.csv.
+        Champions League historical records without verified market odds are dropped.
+        No synthetic or neutral baseline odds are permitted.
         """
         raw_file = self.raw_dir / f"{season}_CL.csv"
         if raw_file.exists():
             try:
                 df = pd.read_csv(raw_file, encoding='latin1')
                 if not df.empty and 'HomeTeam' in df.columns:
-                    return self._clean_dataframe(df, "CL", season)
+                    # Require real odds columns to exist
+                    if 'B365H' in df.columns and 'PSCH' in df.columns:
+                        return self._clean_dataframe(df, "CL", season)
             except Exception:
                 pass
-
-        # Season map: e.g. '2324' -> '2023-24', start_year 2023
-        if len(season) == 4 and season.isdigit():
-            start_year = 2000 + int(season[:2])
-            season_str = f"20{season[:2]}-{season[2:]}"
-        else:
-            start_year = 2023
-            season_str = "2023-24"
-
-        url = f"https://raw.githubusercontent.com/openfootball/europe-champions-league/master/{season_str}/cl.txt"
-        try:
-            resp = requests.get(url, headers=self.headers, timeout=15)
-            if resp.status_code == 200:
-                text = resp.text
-                date_pattern = re.compile(r'^\s*(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\s+([A-Za-z]+)\s+(\d{1,2})')
-                match_pattern = re.compile(r'^\s*(?:\d{2}:\d{2}\s+)?(.+?)\s+v\s+(.+?)\s+(\d+)-(\d+)(?:\s+\((\d+)-(\d+)\))?')
-                months = {
-                    'Jan': 1, 'Feb': 2, 'Mar': 3, 'Apr': 4, 'May': 5, 'Jun': 6,
-                    'Jul': 7, 'Aug': 8, 'Sep': 9, 'Oct': 10, 'Nov': 11, 'Dec': 12
-                }
-
-                records = []
-                current_date = None
-                for line in text.splitlines():
-                    line = line.strip()
-                    if not line or line.startswith('#') or line.startswith('='):
-                        continue
-                    dm = date_pattern.match(line)
-                    if dm:
-                        month_name = dm.group(2)
-                        day = int(dm.group(3))
-                        m_num = months.get(month_name, 9)
-                        m_year = start_year if m_num >= 8 else start_year + 1
-                        current_date = f"{m_year:04d}-{m_num:02d}-{day:02d}"
-                        continue
-                    
-                    mm = match_pattern.match(line)
-                    if mm and current_date:
-                        home = re.sub(r'\s*\([A-Z]{3}\)', '', mm.group(1)).strip()
-                        away = re.sub(r'\s*\([A-Z]{3}\)', '', mm.group(2)).strip()
-                        fthg = int(mm.group(3))
-                        ftag = int(mm.group(4))
-                        ftr = 'H' if fthg > ftag else ('A' if ftag > fthg else 'D')
-                        hthg = int(mm.group(5)) if mm.group(5) else None
-                        htag = int(mm.group(6)) if mm.group(6) else None
-                        htr = 'H' if (hthg is not None and htag is not None and hthg > htag) else (
-                              'A' if (hthg is not None and htag is not None and htag > hthg) else 'D')
-
-                        records.append({
-                            'Date': current_date,
-                            'HomeTeam': home,
-                            'AwayTeam': away,
-                            'FTHG': fthg,
-                            'FTAG': ftag,
-                            'FTR': ftr,
-                            'HTHG': hthg,
-                            'HTAG': htag,
-                            'HTR': htr,
-                            # Baseline market odds for CL matches
-                            'B365H': 2.30, 'B365D': 3.40, 'B365A': 3.10,
-                            'PSCH': 2.30, 'PSCD': 3.40, 'PSCA': 3.10,
-                            'AvgCH': 2.30, 'AvgCD': 3.40, 'AvgCA': 3.10
-                        })
-
-                if records:
-                    cl_df = pd.DataFrame(records)
-                    cl_df.to_csv(raw_file, index=False)
-                    return self._clean_dataframe(cl_df, "CL", season)
-        except Exception as e:
-            print(f"Error fetching UCL for {season}: {e}")
-
         return pd.DataFrame()
 
     def _parse_dates(self, date_series: pd.Series) -> pd.Series:
@@ -263,13 +194,7 @@ class DataFetcher:
         df['max_cd'] = get_col('MaxCD')
         df['max_ca'] = get_col('MaxCA')
 
-        # Fallback for closing odds: if closing odds missing in older matches, use standard odds
-        for h, ch in [('b365_h', 'b365_ch'), ('ps_h', 'ps_ch'), ('avg_h', 'avg_ch'), ('max_h', 'max_ch')]:
-            df[ch] = df[ch].fillna(df[h])
-        for d, cd in [('b365_d', 'b365_cd'), ('ps_d', 'ps_cd'), ('avg_d', 'avg_cd'), ('max_d', 'max_cd')]:
-            df[cd] = df[cd].fillna(df[d])
-        for a, ca in [('b365_a', 'b365_ca'), ('ps_a', 'ps_ca'), ('avg_a', 'avg_ca'), ('max_a', 'max_ca')]:
-            df[ca] = df[ca].fillna(df[a])
+        # Strictly keep real closing odds; never fill with opening odds
 
         cols_to_keep = [
             'match_id', 'league_code', 'league_name', 'season', 'match_date', 'match_time',

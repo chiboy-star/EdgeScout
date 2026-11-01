@@ -37,3 +37,4 @@ class OddsRecord(BaseModel):
     ps_ch: Optional[float] = None
     ps_cd: Optional[float] = None
     ps_ca: Optional[float] = None
+

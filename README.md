@@ -1,8 +1,8 @@
 # EdgeScout
 
-> Quantitative Football Betting Analysis & Paper-Trading Ledger.  
+> Quantitative Football Price-Discipline & Bet-Tracking Workbench.  
 > **Budget:** $0 (Strictly Free Tiers).  
-> **Core Principle:** EdgeScout does **NOT** predict winners or guarantee results. It estimates match outcome probabilities via statistical modeling (Dixon-Coles / bivariate Poisson with time-decay), removes bookmaker margins (using Shin's method or proportional de-vigging), and flags only opportunities where the expected value is positive ($EV > 0$). Skipping a match or generating zero picks is a completely valid and expected output.
+> **Core Principle:** EdgeScout does **NOT** predict match winners, claim easy edges, or promote "sure" picks. It is an educational and analytical tool built on the mathematical fact that **bookmaker margins (vig) cause the average bet to lose money**. EdgeScout quantifies the true expected financial cost of bookmaker pricing, removes margins via Shin's model, demonstrates the destructive compounding of accumulator bets, backtests user rules across 13 domestic European seasons (23,459 real matches), and enforces strict paper trading discipline.
 
 ---
 
@@ -10,123 +10,102 @@
 
 | Data Provider / Service | Free Tier Allowance | Rate Limit | Quota Window | Architectural Usage & Strategy |
 | :--- | :--- | :--- | :--- | :--- |
-| **football-data.co.uk** | Unlimited historical CSV archives | Unmetered (fair use) | None | Ingestion of historical results, half-time/full-time scores, opening and closing odds for EPL, La Liga, Serie A, Bundesliga, Ligue 1. Saved as raw files before indexing. |
-| **football-data.org** | 12 Tier-1 competitions (EPL, La Liga, Serie A, Bundesliga, Ligue 1, UCL, etc.) | 10 requests / minute | Unmetered under rate limit (100 req/24h if unauthenticated) | Upcoming fixture schedules, current standings, and post-match score settlements. Rate-limited and cached locally. |
-| **API-Football (API-Sports)** | 100 requests / day | 10 requests / minute | Resets daily at 00:00 UTC | Lineups, player availability, and injury reports. Managed via a strict budgeter so calls are only spent on shortlisted matches within 60 minutes of kickoff. |
-| **OddsPapi** | 250 requests / month *(Legacy free tier; paused for new users)* | 100 requests / hour | Monthly pool | Current odds including regional bookmakers (e.g., SportyBet). Only queried for matches already shortlisted by the mathematical engine. |
-| **The Odds API** | 500 credits / month | 30 requests / second | Monthly pool | Aggregated odds from global sharp (Pinnacle) and soft books. Credits cost $\text{markets} \times \text{regions}$; strictly used for final line verification. |
-| **Supabase (PostgreSQL)** | 500 MB database, 50k monthly active users | Unmetered pooled connections | Free tier | Production persistence for matches, closing odds, and paper trading ledger (SQLite used for Phase 1). |
-| **Vercel** | Free Hobby tier (100 GB bandwidth, serverless functions) | Standard Vercel rate limits | Monthly pool | Next.js frontend dashboard hosting with edge caching and stale-while-revalidate. |
-| **GitHub Actions** | 2,000 CI/CD minutes / month | Standard concurrency | Monthly pool | Scheduled cron workflow for daily data pulls, model inference, and paper-trade settlement. |
+| **football-data.co.uk** | Unlimited historical CSV archives | Unmetered (fair use) | None | 13 seasons (2012/13 through 2024/25) of results and closing odds for EPL, La Liga, Serie A, Bundesliga, Ligue 1 (23,459 clean matches in SQLite). |
+| **football-data.org** | 12 Tier-1 competitions | 10 requests / minute | Unmetered under rate limit | Fixture schedules, kickoff calendars, and post-match score settlements. Rate-limited and cached locally. |
+| **API-Football (API-Sports)** | 100 requests / day | 10 requests / minute | Resets daily at 00:00 UTC | Lineups, player availability, and injury reports. Budgeted so calls are only spent on shortlisted matches. |
+| **SportyBet Manual Odds Entry** | Unlimited / Direct | Real-time | None | Instant manual entry & paste form in the UI. Computes Shin fair probabilities, margin %, and expected loss per ₦1,000 on user-provided prices. |
+| **Supabase / SQLite** | SQLite local (Phase 1/2) / 500 MB Postgres free tier | Unmetered pooled connections | Free tier | Persistent storage for 23,459 historical matches, paper bankroll, and ledger entries with idempotency protection. |
+| **Vercel** | Free Hobby tier | Standard Vercel rate limits | Monthly pool | Production hosting for Next.js dashboard with edge caching. |
 
 ---
 
-## Directory Layout
+## Phase 2 Modules & Capabilities
 
-```
-EdgeScout/
-├── edgescout/
-│   ├── __init__.py
-│   ├── config.py              # Configuration, free-tier limits, thresholds
-│   ├── cli.py                 # CLI interface for ingestion and backtesting
-│   ├── data/
-│   │   ├── fetcher.py         # football-data.co.uk + UCL data fetcher & parser
-│   │   ├── storage.py         # SQLite persistence & raw API cache
-│   │   └── schemas.py         # Data models and validation
-│   ├── models/
-│   │   ├── margin.py          # Shin's method & proportional de-vigging
-│   │   ├── dixon_coles.py     # Dixon-Coles Poisson model with time decay
-│   │   └── kelly.py           # Quarter-Kelly staking & exposure caps
-│   └── backtest/
-│       ├── walk_forward.py    # Walk-forward engine with strict leakage checks
-│       ├── metrics.py         # Log loss, Brier score, calibration, CLV
-│       └── reporter.py        # ASCII/Markdown reports & matplotlib plots
-├── tests/
-│   ├── test_margin.py         # Tests for Shin & proportional margin removal
-│   ├── test_kelly.py          # Tests for quarter-Kelly & exposure caps
-│   ├── test_leakage.py        # Strict leakage detection & temporal checks
-│   └── test_dixon_coles.py    # Dixon-Coles probability calculation tests
-├── data/
-│   ├── raw/                   # Raw cached CSV responses
-│   └── edgescout.sqlite3      # SQLite database
-├── reports/
-│   ├── backtest_report.md     # Generated backtest report
-│   └── plots/                 # Reliability calibration & ROI plots
-├── requirements.txt
-├── pyproject.toml
-└── README.md
-```
+### 1. Market View (Tab: Today)
+- Computes **Shin margin-removed probabilities**, overround %, and expected loss per ₦1,000 staked.
+- Categorizes selections into market-implied groups:
+  - **Market favourites ($\ge 65\%$)**
+  - **Contested ($35 - 65\%$)**
+  - **Longshots ($< 20\%$)**
+  - Labeled prominently: *"Market view from bookmaker price, NOT an edge."*
+- Factual risk badges based on observable margin size and odds skew.
+- Fast Manual Odds-Entry Modal for pasting current SportyBet odds.
 
----
+### 2. Accumulator Cost Calculator (Tab: Accumulator)
+- Quantifies the mathematical reality of multi-bets.
+- Demonstrates how bookmaker margin compounds exponentially across $N$ events:
+  $$\text{Compounded Margin} = \prod_{i=1}^N (1 + m_i) - 1$$
+- Computes the true joint probability:
+  $$\text{True Joint Probability} = \prod_{i=1}^N p_{\text{fair}, i}$$
+- Calculates expected loss per ₦1,000 staked (e.g., losing -₦234 on a 4-leg acca).
+- Contrasts with splitting the stake across single bets, which preserves capital by avoiding compound margin extraction.
 
-## Setup & Installation
+### 3. Paper Trading Ledger (Tab: Paper Ledger)
+- Virtual bankroll tracking (default ₦100,000).
+- One-tap "Paper Bet" placement with optimistic UI updates.
+- **Double-tap protection:** Enforces unique `idempotency_key` on every paper bet.
+- **6-second Undo Window:** Floating toast allows instant bet cancellation and bankroll refund.
+- **Staking discipline:** Flat 1% default of current bankroll (₦1,000); optional fractional Kelly stake calculation (capped strictly at 2% single bet and 6% daily total exposure).
+- **Persistent Sample Size Warning:** Prominently flagged until at least 300 settled bets exist:
+  > *"Sample too small to judge (X / 300 settled bets). Short-term returns are dominated by random variance."*
 
-### 1. Requirements
-- Python 3.11 or Python 3.12 (standard 64-bit distribution).
-
-### 2. Environment Setup
-```bash
-# Clone the repository and navigate into the workspace
-git clone <repo-url>
-cd EdgeScout
-
-# Create virtual environment
-python -m venv venv
-
-# Activate virtual environment
-# Windows (PowerShell):
-.\venv\Scripts\Activate.ps1
-# Linux / macOS:
-source venv/bin/activate
-
-# Install dependencies
-pip install -r requirements.txt
-```
+### 4. Empirical Strategy Tester (Tab: Strategy Tester)
+- Backtests custom rule-based betting strategies across **13 real historical seasons** (2012/13 through 2024/25, comprising 23,459 real matches from SQLite).
+- Evaluates flat ROI against the bookmaker overround baseline (-4.96%).
+- Computes 95% bootstrap confidence intervals (2,000 resamples).
+- Provides plain-language statistical verdicts defaulting to:
+  > *"INDISTINGUISHABLE FROM THE MARGIN. Outcome is fully explained by normal variance and bookmaker vig."*
+- Exposes the severe Favorite-Longshot Bias: betting longshots (> 4.00) yields an ROI of -11.31%, statistically worse than the overround baseline.
 
 ---
 
-## Running the Engine
+## Design System: "Luxury Typography"
 
-### 1. Ingest Historical Matches and Odds
-Pulls historical data and closing odds for the 5 major European domestic leagues plus the UEFA Champions League across seasons 2021/22 to 2024/25:
+- **Theme Palette:**
+  - Page Background: `#0E0E10` (charcoal-950)
+  - Cards & Sheets: `#17171A` (charcoal-900)
+  - Raised Surfaces / Hover: `#232327` (charcoal-800)
+  - Low-Contrast Borders: `#4A4A52` (charcoal-600)
+  - Primary Typography: `#F4F2EA` (warm off-white)
+  - Muted Text: `#9A9AA3`
+  - Primary Accent: `#E9F56B` (lemon, key numbers, profits)
+  - Secondary Accent: `#B49CFF` (lavender, links, badges)
+  - Cost / Alert: `#FF7A6B` (expected losses, high vig)
+- **Typography:**
+  - Headings: `Fraunces` editorial serif.
+  - Body: `Inter` sans-serif.
+  - Numeric Data: Tabular numbers (`font-mono tabular-nums`) everywhere.
+- **Controls & Hotkeys:**
+  - `1-6`: Jump to tabs (1: Today, 2: This Week, 3: Acca, 4: Ledger, 5: Strategy, 6: Performance).
+  - `⌘K / Ctrl+K`: Universal Command Menu.
+  - `Esc`: Close open modals.
+
+---
+
+## Testing & Verification
+
+All 30 unit tests pass across margin models, Kelly caps, leakage prevention, accumulator compounding, paper ledger idempotency, and strategy backtesting:
 
 ```bash
-python -m edgescout.cli ingest --leagues E0,SP1,I1,D1,F1,CL --seasons 2122,2223,2324,2425
+# Run full test suite with pytest
+pytest -v
 ```
-*Note: All raw downloads are saved directly into `data/raw/` so subsequent runs execute instantly from local cache.*
 
-### 2. Run Walk-Forward Backtesting
-Runs chronological out-of-sample walk-forward validation (training only on past matches strictly before each match date, with built-in temporal leakage assertions):
-
-```bash
-# Run across all 6 competitions with Shin margin removal
-python -m edgescout.cli backtest --devig shin --odds-source b365 --step-days 14
-
-# Or run for a specific league (e.g. English Premier League E0)
-python -m edgescout.cli backtest --league E0 --devig shin --odds-source b365 --step-days 14
+Output:
 ```
-
-Outputs generated:
-- Terminal ASCII summary report.
-- High-resolution reliability diagram: `reports/plots/calibration_plot.png`.
-- GitHub-flavored markdown report: `reports/backtest_report.md`.
-
-### 3. Run the Test Suite
-EdgeScout includes tests verifying mathematical correctness, margin removal properties, Kelly fraction limits, and temporal data leakage prevention:
-
-```bash
-python -m pytest -v
+============================= 30 passed in 3.78s ==============================
 ```
 
 ---
 
-## Evaluation Metrics (Why We Do NOT Headline Accuracy)
+## Running the Dashboard
 
-In football betting, predicting raw winners or touting a "70% accuracy" headline is mathematically meaningless because win probability is inextricably linked to price. A bettor can have an 80% win rate and lose money, or a 40% win rate and achieve high ROI.
+### Option A: Standalone Interactive Artifact
+Open `C:\Users\chine\.gemini\antigravity\brain\a81fc7e1-0852-477c-ba0e-9217794edee6\edgescout_dashboard.html` directly in any web browser or via the Antigravity preview pane.
 
-EdgeScout strictly evaluates model quality using proper probabilistic scoring rules:
-1. **Multiclass Log Loss (Cross-Entropy):** Penalizes overconfident misclassifications exponentially.
-2. **Multiclass Brier Score:** Measures the mean squared deviation between predicted probability vectors and one-hot outcomes.
-3. **Probability Calibration (Reliability Diagram & ECE):** Verifies that among events assigned an $x\%$ probability, approximately $x\%$ occur in reality.
-4. **Closing Line Value (CLV):** Quantifies whether odds taken beat the sharp closing market ($CLV = \frac{\text{Odds}_{\text{taken}}}{\text{Odds}_{\text{closing}}} - 1$). Consistently beating the closing line is the empirical gold standard for predictive edge.
-
+### Option B: Next.js Production Build
+```bash
+cd dashboard
+npm run build
+npm run start
+```

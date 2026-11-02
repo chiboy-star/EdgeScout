@@ -11,101 +11,75 @@
 | Data Provider / Service | Free Tier Allowance | Rate Limit | Quota Window | Architectural Usage & Strategy |
 | :--- | :--- | :--- | :--- | :--- |
 | **football-data.co.uk** | Unlimited historical CSV archives | Unmetered (fair use) | None | 13 seasons (2012/13 through 2024/25) of results and closing odds for EPL, La Liga, Serie A, Bundesliga, Ligue 1 (23,459 clean matches in SQLite). |
-| **football-data.org** | 12 Tier-1 competitions | 10 requests / minute | Unmetered under rate limit | Fixture schedules, kickoff calendars, and post-match score settlements. Rate-limited and cached locally. |
-| **API-Football (API-Sports)** | 100 requests / day | 10 requests / minute | Resets daily at 00:00 UTC | Lineups, player availability, and injury reports. Budgeted so calls are only spent on shortlisted matches. |
-| **SportyBet Manual Odds Entry** | Unlimited / Direct | Real-time | None | Instant manual entry & paste form in the UI. Computes Shin fair probabilities, margin %, and expected loss per ₦1,000 on user-provided prices. |
-| **Supabase / SQLite** | SQLite local (Phase 1/2) / 500 MB Postgres free tier | Unmetered pooled connections | Free tier | Persistent storage for 23,459 historical matches, paper bankroll, and ledger entries with idempotency protection. |
-| **Vercel** | Free Hobby tier | Standard Vercel rate limits | Monthly pool | Production hosting for Next.js dashboard with edge caching. |
+| **football-data.org** | 12 Tier-1 competitions (PL, PD, SA, BL1, FL1, CL, etc.) | 10 requests / minute | Unmetered under rate limit | Live fixture schedules, stable match IDs (`fd_{id}`), and finished score settlements. Rate-limited and cached locally. |
+| **SportyBet Manual Odds Entry** | Unlimited / Direct | Real-time | None | Fast manual entry & paste form in the UI. Computes Shin fair probabilities, margin %, and expected loss per ₦1,000 on user-provided prices. |
+| **SQLite (Local)** | Local file (`data/edgescout.sqlite3`) | Unmetered local I/O | None | Persistent storage for 23,459 historical matches, paper bankroll, ledger entries with idempotency protection, and `strategy_trials` logging. |
+| **Minimal Local Python Server** | Built-in standard library (`edgescout.server`) | Unmetered localhost | None | 0 external dependencies. Serves REST API and unified Luxury Typography UI. |
 
 ---
 
-## Phase 2 Modules & Capabilities
+## Phase 3 Capabilities & Modules
 
-### 1. Market View (Tab: Today)
-- Computes **Shin margin-removed probabilities**, overround %, and expected loss per ₦1,000 staked.
-- Categorizes selections into market-implied groups:
-  - **Market favourites ($\ge 65\%$)**
-  - **Contested ($35 - 65\%$)**
-  - **Longshots ($< 20\%$)**
-  - Labeled prominently: *"Market view from bookmaker price, NOT an edge."*
-- Factual risk badges based on observable margin size and odds skew.
-- Fast Manual Odds-Entry Modal for pasting current SportyBet odds.
+### 1. Real Settlement & Stable ID Matching
+- **Eliminated Fake/Simulated Results:** Settle entirely from real match scores pulled from football-data.org via stable match IDs (`fd_{id}`).
+- **Postponed & Cancelled Game Handling:** Automatically marks matching bets as `VOID` and refunds **100% of the staked bankroll** immediately.
+- **Manual Settle Override:** Allows one-click manual settlement (`WON`, `LOST`, `VOID`) for competitions not covered by the free API tier.
+- **Closing Odds & CLV Tracking:** Records `odds_taken` on placement and optional `closing_odds` on settlement to track Closing Line Value:
+  $$\text{CLV} = \frac{\text{odds\_taken}}{\text{closing\_odds}} - 1$$
 
-### 2. Accumulator Cost Calculator (Tab: Accumulator)
-- Quantifies the mathematical reality of multi-bets.
-- Demonstrates how bookmaker margin compounds exponentially across $N$ events:
-  $$\text{Compounded Margin} = \prod_{i=1}^N (1 + m_i) - 1$$
-- Computes the true joint probability:
-  $$\text{True Joint Probability} = \prod_{i=1}^N p_{\text{fair}, i}$$
-- Calculates expected loss per ₦1,000 staked (e.g., losing -₦234 on a 4-leg acca).
-- Contrasts with splitting the stake across single bets, which preserves capital by avoiding compound margin extraction.
+### 2. Real Fixtures & Explicit DEMO Badging
+- Shows real scheduled matches from football-data.org.
+- **"No Odds Loaded" State:** If a match has no odds loaded, it displays a distinct callout with a direct button to input SportyBet decimal odds.
+- **Strict Labeling:** Any fixture, outcome, or slate drawn from historical sample or demo data carries a prominent, visible **`DEMO`** badge. No unlabeled demo data anywhere.
 
-### 3. Paper Trading Ledger (Tab: Paper Ledger)
-- Virtual bankroll tracking (default ₦100,000).
-- One-tap "Paper Bet" placement with optimistic UI updates.
-- **Double-tap protection:** Enforces unique `idempotency_key` on every paper bet.
-- **6-second Undo Window:** Floating toast allows instant bet cancellation and bankroll refund.
-- **Staking discipline:** Flat 1% default of current bankroll (₦1,000); optional fractional Kelly stake calculation (capped strictly at 2% single bet and 6% daily total exposure).
-- **Persistent Sample Size Warning:** Prominently flagged until at least 300 settled bets exist:
-  > *"Sample too small to judge (X / 300 settled bets). Short-term returns are dominated by random variance."*
+### 3. Audited Accumulator Math
+- **Audited Expected Loss Formula:**
+  $$\text{Expected Loss Fraction} = 1 - \frac{1}{1 + M} \quad \text{where} \quad M = \prod_{i=1}^N (1 + m_i) - 1$$
+- **Audit Benchmark:** 4 legs at $5.3\%$ margin each ($m_i = 0.053$):
+  $$1 + M = (1.053)^4 \approx 1.22956 \implies M \approx 22.96\%$$
+  $$\text{Expected Loss Fraction} = 1 - \frac{1}{1.22956} = 18.67\% \approx 18.7\%$$
+  *(Never confuses $M$ with the expected loss fraction).*
+- **Correlated Legs Warning:** Flags multi-bets where multiple selections share the same match ID or fixture name, warning that the independent compounding formula does not apply.
 
-### 4. Empirical Strategy Tester (Tab: Strategy Tester)
-- Backtests custom rule-based betting strategies across **13 real historical seasons** (2012/13 through 2024/25, comprising 23,459 real matches from SQLite).
-- Evaluates flat ROI against the bookmaker overround baseline (-4.96%).
-- Computes 95% bootstrap confidence intervals (2,000 resamples).
-- Provides plain-language statistical verdicts defaulting to:
-  > *"INDISTINGUISHABLE FROM THE MARGIN. Outcome is fully explained by normal variance and bookmaker vig."*
-- Exposes the severe Favorite-Longshot Bias: betting longshots (> 4.00) yields an ROI of -11.31%, statistically worse than the overround baseline.
+### 4. Strategy Tester Integrity
+- **Default Split:**
+  - **Design (In-Sample):** 2012/13 through 2019/20 (8 seasons, 14,507 matches)
+  - **Holdout (Out-of-Sample):** 2020/21 through 2024/25 (5 seasons, 9,546 matches)
+  - Shows both side-by-side; **headlines the Holdout split**.
+- **Trial Counter Persisted in SQLite (`strategy_trials`):** Every rule tested logs its parameters, design metrics, holdout metrics, and verdict.
+- **Multiple-Testing Warning:** Scales dynamically with total trials $N$:
+  $$\text{Expected False Positives} \approx 0.05 \times N$$
+- **Bookmaker Proxy Caveat:** Bet365 pre-close odds are used as the historical benchmark. Real-world SportyBet margins are $1.0\%-2.5\%$ higher, meaning real-world soft-book losses will exceed these historical figures.
+- **Verdict Language:** Stays *"INDISTINGUISHABLE FROM THE MARGIN"* unless the Holdout 95% bootstrap CI is entirely above the margin baseline.
 
----
-
-## Design System: "Luxury Typography"
-
-- **Theme Palette:**
-  - Page Background: `#0E0E10` (charcoal-950)
-  - Cards & Sheets: `#17171A` (charcoal-900)
-  - Raised Surfaces / Hover: `#232327` (charcoal-800)
-  - Low-Contrast Borders: `#4A4A52` (charcoal-600)
-  - Primary Typography: `#F4F2EA` (warm off-white)
-  - Muted Text: `#9A9AA3`
-  - Primary Accent: `#E9F56B` (lemon, key numbers, profits)
-  - Secondary Accent: `#B49CFF` (lavender, links, badges)
-  - Cost / Alert: `#FF7A6B` (expected losses, high vig)
-- **Typography:**
-  - Headings: `Fraunces` editorial serif.
-  - Body: `Inter` sans-serif.
-  - Numeric Data: Tabular numbers (`font-mono tabular-nums`) everywhere.
-- **Controls & Hotkeys:**
-  - `1-6`: Jump to tabs (1: Today, 2: This Week, 3: Acca, 4: Ledger, 5: Strategy, 6: Performance).
-  - `⌘K / Ctrl+K`: Universal Command Menu.
-  - `Esc`: Close open modals.
+### 5. Unified Frontend
+- Next.js has been dropped because `npm run build` failed with `'next' is not recognized as an internal or external command` (dependencies hit continuous network timeouts/resets during download).
+- Single, unified frontend maintained in `dashboard/index.html` and served locally via `python -m edgescout.server` on port 8000.
 
 ---
 
 ## Testing & Verification
 
-All 30 unit tests pass across margin models, Kelly caps, leakage prevention, accumulator compounding, paper ledger idempotency, and strategy backtesting:
+All 39 unit tests pass 100% in `pytest`:
 
 ```bash
-# Run full test suite with pytest
 pytest -v
 ```
 
 Output:
 ```
-============================= 30 passed in 3.78s ==============================
+============================= 39 passed in 11.25s =============================
 ```
 
 ---
 
-## Running the Dashboard
+## Running EdgeScout Locally
 
-### Option A: Standalone Interactive Artifact
-Open `C:\Users\chine\.gemini\antigravity\brain\a81fc7e1-0852-477c-ba0e-9217794edee6\edgescout_dashboard.html` directly in any web browser or via the Antigravity preview pane.
-
-### Option B: Next.js Production Build
 ```bash
-cd dashboard
-npm run build
-npm run start
+# 1. Start local server
+python -m edgescout.server
+
+# 2. Open in browser
+http://127.0.0.1:8000/
 ```
+Or open `dashboard/index.html` directly in any web browser.

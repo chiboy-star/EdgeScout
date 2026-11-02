@@ -1,47 +1,57 @@
 """
 Fixtures & Market View Engine for EdgeScout.
-Manages upcoming fixtures, manual SportyBet odds entry, margin calculation,
-and market-implied categorization.
-Core Principle: Never claim an edge. Quantify the bookmaker's profit margin and expected loss.
+Integrates with football-data.org feed, manages upcoming fixtures,
+manual SportyBet odds entry, Shin margin removal, and cost calculation.
+
+Core Principle: Never claim an edge. Quantify bookmaker margin and expected loss.
+Strict Labeling: Any fixture from sample/historical data carries is_demo = True and a visible DEMO badge.
 """
 import requests
 import json
 import os
 import sqlite3
-from typing import Dict, List, Optional, Any
+from typing import Dict, List, Optional, Any, Tuple
 from datetime import datetime, timezone
 from pathlib import Path
 
 from edgescout.config import DEFAULT_DB_PATH, CACHE_DIR
 from edgescout.models.margin import remove_margin_shin, calculate_overround
+from edgescout.data.football_data_org import FootballDataOrgClient
 
 
-def get_risk_badge(overround_pct: float, min_odds: float, max_odds: float) -> Dict[str, str]:
+def get_risk_badge(overround_pct: Optional[float], min_odds: Optional[float], max_odds: Optional[float]) -> Dict[str, str]:
     """
     Computes an observable risk badge based strictly on factual properties:
     - High margin / vig
     - Longshot skew
     - Odds volatility
     """
+    if overround_pct is None:
+        return {
+            'level': 'No Odds Loaded',
+            'badge_class': 'muted',
+            'reasons': ['Awaiting SportyBet odds entry']
+        }
+
     reasons = []
     if overround_pct > 6.0:
-        level = "High Risk ▲"
+        level = "High Vig ▲"
         reasons.append(f"Excessive bookmaker margin ({overround_pct:.1f}%)")
     elif overround_pct > 4.5:
-        level = "Medium Risk ■"
-        reasons.append(f"Standard soft-book margin ({overround_pct:.1f}%)")
+        level = "Standard Vig ■"
+        reasons.append(f"Typical soft-book margin ({overround_pct:.1f}%)")
     else:
-        level = "Low Risk ●"
+        level = "Competitive Vig ●"
         reasons.append(f"Competitive sharp margin ({overround_pct:.1f}%)")
 
-    if max_odds >= 6.0:
+    if max_odds and max_odds >= 6.0:
         reasons.append("High outcome variance (heavy underdog)")
-    elif min_odds >= 2.2:
+    elif min_odds and min_odds >= 2.2:
         reasons.append("Tightly contested coin-flip market")
 
     return {
         'level': level,
-        'badge_class': 'alert' if 'High' in level else ('lavender' if 'Medium' in level else 'muted'),
+        'badge_class': 'alert' if 'High' in level else ('lavender' if 'Standard' in level else 'muted'),
         'reasons': reasons
     }
 
@@ -52,13 +62,37 @@ def analyze_fixture_market(
     away_team: str,
     league_name: str,
     kickoff_time: str,
-    odds_1x2: List[float],
-    bookmaker: str = "SportyBet (User Entry)"
+    odds_1x2: Optional[List[float]] = None,
+    bookmaker: str = "SportyBet (User Entry)",
+    is_demo: bool = False,
+    feed_source: str = "football-data.org"
 ) -> Dict[str, Any]:
     """
     Computes true margin-removed probabilities, margin %, and cost per 1,000 staked.
-    Categorizes selections into: Market favourites (>=65%), Contested (35-65%), Longshots (<20%).
+    If odds_1x2 is None, outputs clean 'no odds loaded' state ready for user entry.
     """
+    has_odds = odds_1x2 is not None and len(odds_1x2) == 3 and all(o > 1.0 for o in odds_1x2)
+
+    if not has_odds:
+        return {
+            'match_id': match_id,
+            'home_team': home_team,
+            'away_team': away_team,
+            'league': league_name,
+            'kickoff_time': kickoff_time,
+            'bookmaker': bookmaker,
+            'has_odds': False,
+            'is_demo': is_demo,
+            'feed_source': feed_source,
+            'overround_pct': None,
+            'dominant_category': "No Odds Loaded",
+            'dominant_disclaimer': "Awaiting user SportyBet odds entry.",
+            'risk_badge': get_risk_badge(None, None, None),
+            'outcomes': [],
+            'raw_odds': None,
+            'updated_at': "Just now"
+        }
+
     h_odd, d_odd, a_odd = odds_1x2
     overround = calculate_overround(odds_1x2)
     overround_pct = round(overround * 100.0, 2)
@@ -118,6 +152,9 @@ def analyze_fixture_market(
         'league': league_name,
         'kickoff_time': kickoff_time,
         'bookmaker': bookmaker,
+        'has_odds': True,
+        'is_demo': is_demo,
+        'feed_source': feed_source,
         'overround_pct': overround_pct,
         'dominant_category': dominant_cat,
         'dominant_disclaimer': "Market view from bookmaker price, NOT an edge.",
@@ -128,26 +165,27 @@ def analyze_fixture_market(
     }
 
 
-def get_sample_upcoming_fixtures() -> List[Dict[str, Any]]:
+def get_market_fixtures(api_key: Optional[str] = None) -> List[Dict[str, Any]]:
     """
-    Returns realistic upcoming top-flight fixtures with baseline SportyBet/market odds
-    ready for inspection or manual adjustment.
+    Returns upcoming fixtures fetched from football-data.org (or cached real slate).
+    Properly labels is_demo=True with visible DEMO badge if demo/sample data is used.
     """
-    fixtures_data = [
-        ("E0_2026_001", "Arsenal", "Chelsea", "Premier League", "Saturday 16:00", [1.85, 3.75, 4.20]),
-        ("E0_2026_002", "Manchester City", "Liverpool", "Premier League", "Sunday 17:30", [2.05, 3.60, 3.50]),
-        ("SP1_2026_003", "Real Madrid", "Barcelona", "La Liga", "Sunday 20:00", [2.15, 3.70, 3.20]),
-        ("D1_2026_004", "Bayern Munich", "Borussia Dortmund", "Bundesliga", "Saturday 17:30", [1.45, 5.00, 6.50]),
-        ("I1_2026_005", "Inter Milan", "Juventus", "Serie A", "Sunday 19:45", [1.95, 3.40, 4.10]),
-        ("F1_2026_006", "Paris SG", "Marseille", "Ligue 1", "Sunday 20:45", [1.40, 5.25, 7.50]),
-        ("E0_2026_007", "Aston Villa", "Newcastle", "Premier League", "Saturday 13:30", [2.40, 3.50, 2.90]),
-        ("SP1_2026_008", "Atletico Madrid", "Sevilla", "La Liga", "Saturday 21:00", [1.60, 4.00, 5.75])
-    ]
-
+    client = FootballDataOrgClient(api_key=api_key)
+    raw_fixtures, is_demo = client.fetch_upcoming_fixtures()
     results = []
-    for m_id, h, a, l, k, odds in fixtures_data:
-        analyzed = analyze_fixture_market(m_id, h, a, l, k, odds, bookmaker="SportyBet")
+
+    for f in raw_fixtures:
+        analyzed = analyze_fixture_market(
+            match_id=f['match_id'],
+            home_team=f['home_team'],
+            away_team=f['away_team'],
+            league_name=f['league'],
+            kickoff_time=f['kickoff_time'],
+            odds_1x2=f.get('odds'),
+            bookmaker="SportyBet" if f.get('odds') else "No Odds Loaded",
+            is_demo=is_demo or f.get('is_demo', False),
+            feed_source=f.get('feed_source', 'football-data.org')
+        )
         results.append(analyzed)
 
     return results
-

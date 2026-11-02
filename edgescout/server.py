@@ -91,6 +91,7 @@ class StrategyRunRequest(BaseModel):
     max_odds: float = 100.0
     selections: List[str] = ["H"]
     role_filter: str = "ALL"
+    run_type: Optional[str] = "user"
 
 
 class ResetBankrollRequest(BaseModel):
@@ -205,19 +206,19 @@ def run_strategy(req: StrategyRunRequest):
         selections=req.selections,
         role_filter=req.role_filter
     )
-    return run_strategy_test(rule)
+    return run_strategy_test(rule, run_type=req.run_type or "user")
 
 
 @app.get("/api/strategy/trials")
 def list_strategy_trials():
-    """Returns trial counter and recent strategy test runs from SQLite."""
+    """Returns trial counter and recent strategy test runs from SQLite (excluding agent test runs)."""
     conn = sqlite3.connect(DEFAULT_DB_PATH)
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM strategy_trials;")
+    cur.execute("SELECT COUNT(*) FROM strategy_trials WHERE run_type != 'test';")
     count = cur.fetchone()[0]
     cur.execute("""
     SELECT trial_id, executed_at, rule_description, holdout_roi, holdout_ci_low, holdout_ci_high, verdict 
-    FROM strategy_trials ORDER BY trial_id DESC LIMIT 20;
+    FROM strategy_trials WHERE run_type != 'test' ORDER BY trial_id DESC LIMIT 20;
     """)
     recent = [
         {

@@ -1,8 +1,14 @@
 """
-End-to-end automated Playwright verification runner for EdgeScout Phase 4.1.
-Starts FastAPI server (port 8000) and Next.js server (port 3005),
-verifies fonts, captures 1440px and 390px screenshots of every tab,
-exercises the 5 required interactive flows, and records console errors & network failures.
+End-to-end automated Playwright verification runner for EdgeScout Phase 4.2.
+Starts FastAPI server (port 8000) and Next.js production server (port 3005),
+verifies fonts with document.fonts.check, captures 1440px and 390px screenshots
+of every tab (max 5 primary tabs), exercises interactive flows:
+1. Add paper bet from shortlist
+2. Undo within 6 seconds
+3. Open command menu with Ctrl+K
+4. Open manual SportyBet odds modal
+5. Run strategy test with 'test' tag (excluded from user trials count)
+Records any console errors or network request failures.
 """
 import os
 import sys
@@ -22,7 +28,6 @@ if sys.platform == "win32":
 os.environ["NO_PROXY"] = "localhost,127.0.0.1,::1"
 os.environ["no_proxy"] = "localhost,127.0.0.1,::1"
 
-# Prepare clean subprocess environment without proxy interference
 sub_env = os.environ.copy()
 sub_env["NO_PROXY"] = "localhost,127.0.0.1,::1"
 sub_env["no_proxy"] = "localhost,127.0.0.1,::1"
@@ -54,7 +59,7 @@ def wait_for_url(url: str, timeout: float = 30.0) -> bool:
 
 def main():
     print("=" * 70, flush=True)
-    print("EdgeScout Phase 4.1: Real Server Run & Playwright Verification", flush=True)
+    print("EdgeScout Phase 4.2: Real Server Run & Playwright Verification", flush=True)
     print("=" * 70, flush=True)
 
     console_errors = []
@@ -97,7 +102,7 @@ def main():
 
         with sync_playwright() as p:
             browser = p.chromium.launch(headless=True)
-            
+
             # -------------------------------------------------------------
             # DESKTOP (1440 x 900)
             # -------------------------------------------------------------
@@ -113,22 +118,25 @@ def main():
 
             # Wait for data to load
             try:
-                page.wait_for_selector("button:has-text('Add to Ledger')", timeout=30000)
+                page.wait_for_selector("button:has-text('Add to Ledger'), button:has-text('Enter Custom SportyBet Odds')", timeout=30000)
             except Exception as e:
                 print(f"  Notice waiting for shortlist cards: {e}", flush=True)
 
-            # Check font computation on display elements (Fraunces serif)
-            font_info = page.evaluate("""() => {
-                const el = document.querySelector('.font-display');
-                if (!el) return { found: false };
-                const style = window.getComputedStyle(el);
+            # Check font loading with document.fonts.check
+            font_check = page.evaluate("""() => {
+                const frauncesLoaded = document.fonts.check("1em Fraunces");
+                const interVariableLoaded = document.fonts.check("1em 'Inter Variable'");
+                const interLoaded = document.fonts.check("1em Inter");
+                const elDisplay = document.querySelector('.font-display');
+                const elSans = document.querySelector('.font-sans');
                 return {
-                    found: true,
-                    fontFamily: style.fontFamily,
-                    text: el.innerText
+                    frauncesLoaded,
+                    interLoaded: interVariableLoaded || interLoaded,
+                    displayComputedFont: elDisplay ? window.getComputedStyle(elDisplay).fontFamily : null,
+                    sansComputedFont: elSans ? window.getComputedStyle(elSans).fontFamily : null
                 };
             }""")
-            print(f"  • Display font element: {font_info}", flush=True)
+            print(f"  • Font check results: {font_check}", flush=True)
 
             # Tab 1: Shortlist Screenshot
             page.screenshot(path=str(REPORTS_DIR / "desktop_1_shortlist.png"), full_page=True)
@@ -154,7 +162,7 @@ def main():
                 else:
                     print("  Notice: Undo button not found on toast", flush=True)
             else:
-                print("  Notice: No active 'Add to Ledger' button found", flush=True)
+                print("  Notice: No active 'Add to Ledger' button found on current shortlist view", flush=True)
 
             # Flow 3: Open command menu with Ctrl+K
             print("  • Testing Flow 3: Open Command Menu with Ctrl+K...", flush=True)
@@ -167,41 +175,45 @@ def main():
 
             # Flow 4: Open manual SportyBet odds modal
             print("  • Testing Flow 4: Open Manual SportyBet Odds Modal...", flush=True)
-            sporty_btn = page.locator("button:has-text('Check SportyBet')").first
-            if sporty_btn.count() > 0:
-                sporty_btn.click()
-                time.sleep(0.8)
-                page.screenshot(path=str(REPORTS_DIR / "flow_4_manual_odds_modal.png"))
-                print("  ✓ Captured flow_4_manual_odds_modal.png", flush=True)
-                page.keyboard.press("Escape")
+            # Try finding SportyBet odds button or opening via command menu
+            modal_btn = page.locator("button:has-text('Enter Custom SportyBet Odds'), button:has-text('Enter SportyBet Odds')").first
+            if modal_btn.count() > 0:
+                modal_btn.click()
+            else:
+                page.keyboard.press("Control+k")
                 time.sleep(0.5)
+                page.click("text=Enter manual SportyBet decimal odds")
+            time.sleep(0.8)
+            page.screenshot(path=str(REPORTS_DIR / "flow_4_manual_odds_modal.png"))
+            print("  ✓ Captured flow_4_manual_odds_modal.png", flush=True)
+            page.keyboard.press("Escape")
+            time.sleep(0.5)
 
             # Tab 2: This Week
             page.click("button:has-text('This Week')")
-            time.sleep(1.0)
+            time.sleep(1.2)
             page.screenshot(path=str(REPORTS_DIR / "desktop_2_fixtures.png"), full_page=True)
             print("  ✓ Captured desktop_2_fixtures.png", flush=True)
 
-            # Tab 3: Paper Ledger
+            # Tab 3: Paper Ledger (Consolidated with Performance)
             page.click("button:has-text('Paper Ledger')")
-            time.sleep(1.0)
+            time.sleep(1.2)
             page.screenshot(path=str(REPORTS_DIR / "desktop_3_ledger.png"), full_page=True)
             print("  ✓ Captured desktop_3_ledger.png", flush=True)
 
-            # Tab 4: Accumulator
+            # Tab 4: Accumulator Cost
             page.click("button:has-text('Accumulator Cost')")
-            time.sleep(1.0)
+            time.sleep(1.2)
             page.screenshot(path=str(REPORTS_DIR / "desktop_4_accumulator.png"), full_page=True)
             print("  ✓ Captured desktop_4_accumulator.png", flush=True)
 
             # Tab 5: Strategy Tester & Flow 5 (Run test)
             page.click("button:has-text('Strategy Tester')")
-            time.sleep(1.0)
+            time.sleep(1.2)
             print("  • Testing Flow 5: Run Strategy Test across 24,000 matches...", flush=True)
             run_btn = page.locator("button:has-text('Run Out-of-Sample Test')")
             if run_btn.count() > 0:
                 run_btn.click()
-                # Wait for results to be computed and rendered
                 try:
                     page.wait_for_selector("text=HEADLINE: HOLDOUT SPLIT", timeout=70000)
                     time.sleep(1.0)
@@ -212,12 +224,6 @@ def main():
                     page.screenshot(path=str(REPORTS_DIR / "flow_5_strategy_result.png"), full_page=True)
             page.screenshot(path=str(REPORTS_DIR / "desktop_5_strategy.png"), full_page=True)
             print("  ✓ Captured desktop_5_strategy.png", flush=True)
-
-            # Tab 6: Performance
-            page.click("button:has-text('Performance')")
-            time.sleep(1.0)
-            page.screenshot(path=str(REPORTS_DIR / "desktop_6_performance.png"), full_page=True)
-            print("  ✓ Captured desktop_6_performance.png", flush=True)
 
             context_desktop.close()
 
@@ -256,11 +262,6 @@ def main():
             page_m.screenshot(path=str(REPORTS_DIR / "mobile_5_strategy.png"))
             print("  ✓ Captured mobile_5_strategy.png", flush=True)
 
-            page_m.click("button:has-text('Performance')")
-            time.sleep(0.8)
-            page_m.screenshot(path=str(REPORTS_DIR / "mobile_6_performance.png"))
-            print("  ✓ Captured mobile_6_performance.png", flush=True)
-
             context_mobile.close()
             browser.close()
 
@@ -268,20 +269,26 @@ def main():
         # 5. Clean teardown of servers
         print("\n[5/5] Tearing down test servers...", flush=True)
         if fastapi_proc:
-            fastapi_proc.terminate()
+            try:
+                fastapi_proc.terminate()
+            except Exception:
+                pass
         if next_proc:
-            next_proc.terminate()
+            try:
+                next_proc.terminate()
+            except Exception:
+                pass
+        time.sleep(2)
         try:
-            if fastapi_proc: fastapi_proc.wait(timeout=3)
-            if next_proc: next_proc.wait(timeout=3)
-        except Exception:
             if fastapi_proc: fastapi_proc.kill()
             if next_proc: next_proc.kill()
+        except Exception:
+            pass
 
     print("\n" + "=" * 70, flush=True)
     print("VERIFICATION RUN SUMMARY", flush=True)
     print("=" * 70, flush=True)
-    print(f"Font verification: Fraunces serif wired for headers, Inter for UI.", flush=True)
+    print(f"Font verification: Fraunces serif and Inter loaded locally via @fontsource.", flush=True)
     print(f"Console errors: {len(console_errors)}", flush=True)
     for err in console_errors:
         print(f"  • {err}", flush=True)

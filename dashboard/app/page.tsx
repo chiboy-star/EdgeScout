@@ -16,7 +16,6 @@ import { FixturesTab } from "../components/FixturesTab";
 import { LedgerTab } from "../components/LedgerTab";
 import { AccumulatorTab } from "../components/AccumulatorTab";
 import { StrategyTesterTab } from "../components/StrategyTesterTab";
-import { PerformanceTab } from "../components/PerformanceTab";
 import { ManualOddsModal } from "../components/ManualOddsModal";
 
 export default function DashboardPage() {
@@ -287,7 +286,7 @@ export default function DashboardPage() {
       />
 
       {/* Main Content Area */}
-      <main className="flex-1 max-w-7xl w-full mx-auto px-4 lg:px-8 py-6">
+      <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === "shortlist" && (
           <ShortlistTab
             shortlist={shortlist}
@@ -321,10 +320,6 @@ export default function DashboardPage() {
 
         {activeTab === "strategy" && (
           <StrategyTesterTab />
-        )}
-
-        {activeTab === "performance" && (
-          <PerformanceTab ledger={ledger} />
         )}
       </main>
 

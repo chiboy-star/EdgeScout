@@ -21,7 +21,7 @@ const config: Config = {
         },
         text: {
           primary: "#F4F2EA",
-          muted: "#9A9AA3",
+          muted: "#A8A8B3",
         },
         lemon: "#E9F56B",
         lavender: "#B49CFF",

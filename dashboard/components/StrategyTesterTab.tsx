@@ -6,7 +6,6 @@ import {
   FlaskConical, 
   Play, 
   AlertTriangle, 
-  ShieldAlert, 
   History, 
   CheckCircle, 
   XCircle,
@@ -48,6 +47,7 @@ export function StrategyTesterTab() {
         max_odds: maxOdds,
         selections: selections,
         role_filter: roleFilter,
+        run_type: "user",
       });
       setResult(res);
       await loadTrials();
@@ -79,9 +79,9 @@ export function StrategyTesterTab() {
   return (
     <div className="space-y-6">
       {/* Top Banner */}
-      <div className="bg-bg-900 border border-border-dark rounded-xl p-4 flex flex-col md:flex-row md:items-center justify-between gap-4">
+      <div className="bg-bg-900 border border-border-dark rounded-xl p-4 lg:p-5 flex flex-col md:flex-row md:items-center justify-between gap-4">
         <div>
-          <h3 className="font-display font-bold text-text-primary text-base flex items-center gap-2">
+          <h3 className="font-display font-semibold text-text-primary text-base flex items-center gap-2">
             <FlaskConical className="w-4 h-4 text-lavender" />
             13-Season Strategy Backtester (Strict Out-of-Sample Split)
           </h3>
@@ -93,20 +93,20 @@ export function StrategyTesterTab() {
 
       {/* Multiple Testing Warning */}
       <div className="bg-bg-900 border border-border-subdued rounded-xl p-4 flex items-start gap-3">
-        <AlertTriangle className="w-5 h-5 text-lemon shrink-0 mt-0.5" />
+        <AlertTriangle className="w-5 h-5 text-lavender shrink-0 mt-0.5" />
         <div className="space-y-1">
           <h4 className="font-display font-semibold text-text-primary text-xs">
-            MULTIPLE-TESTING CAUTION: {trials.total_trials} TOTAL STRATEGY RUNS LOGGED
+            MULTIPLE-TESTING CAUTION: {trials.total_trials} TOTAL USER RUNS LOGGED
           </h4>
           <p className="text-[11px] text-text-muted leading-relaxed">
-            At {trials.total_trials} rules tested, expect approximately <strong className="text-lemon font-medium">{expectedFalsePositives}</strong> rules to appear profitable purely due to random statistical noise (p &lt; 0.05). Historical backtests run on Bet365 proxy odds; real-world SportyBet margins are almost certainly higher.
+            At {trials.total_trials} rules tested, expect approximately <strong className="text-lavender font-medium">{expectedFalsePositives}</strong> rules to appear profitable purely due to random statistical noise (p &lt; 0.05). Historical backtests run on Bet365 proxy odds; real-world SportyBet margins are almost certainly higher.
           </p>
         </div>
       </div>
 
       {/* Strategy Builder Form */}
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        <div className="lg:col-span-1 bg-bg-900 border border-border-dark rounded-xl p-4 space-y-4">
+        <div className="lg:col-span-1 bg-bg-900 border border-border-dark rounded-xl p-4 lg:p-5 space-y-4">
           <h4 className="font-display font-semibold text-sm text-text-primary">Rule Configuration</h4>
 
           <div>
@@ -115,7 +115,7 @@ export function StrategyTesterTab() {
               type="text"
               value={ruleName}
               onChange={(e) => setRuleName(e.target.value)}
-              className="w-full bg-bg-950 border border-border-dark rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-lemon"
+              className="w-full bg-bg-950 border border-border-dark rounded-lg px-3 py-2 text-xs text-text-primary focus:outline-none focus:border-lavender"
             />
           </div>
 
@@ -134,9 +134,9 @@ export function StrategyTesterTab() {
                   <button
                     key={lg.code}
                     onClick={() => toggleLeague(lg.code)}
-                    className={`px-2.5 py-1 text-xs rounded-lg font-mono transition-colors ${
+                    className={`px-2.5 py-1 text-xs rounded-lg font-mono transition-colors cursor-pointer ${
                       isSelected
-                        ? "bg-lemon text-bg-950 font-bold"
+                        ? "bg-lavender text-bg-950 font-bold"
                         : "bg-bg-950 text-text-muted border border-border-dark hover:text-text-primary"
                     }`}
                   >
@@ -156,7 +156,7 @@ export function StrategyTesterTab() {
                 min="1.01"
                 value={minOdds}
                 onChange={(e) => setMinOdds(parseFloat(e.target.value) || 1.01)}
-                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 text-xs text-text-primary font-mono focus:outline-none"
+                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-lavender"
               />
             </div>
             <div>
@@ -167,7 +167,7 @@ export function StrategyTesterTab() {
                 max="50.0"
                 value={maxOdds}
                 onChange={(e) => setMaxOdds(parseFloat(e.target.value) || 50.0)}
-                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 text-xs text-text-primary font-mono focus:outline-none"
+                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 text-xs text-text-primary font-mono focus:outline-none focus:border-lavender"
               />
             </div>
           </div>
@@ -185,7 +185,7 @@ export function StrategyTesterTab() {
                   <button
                     key={s.code}
                     onClick={() => toggleSelection(s.code)}
-                    className={`py-1.5 text-xs rounded-lg font-mono transition-colors ${
+                    className={`py-1.5 text-xs rounded-lg font-mono transition-colors cursor-pointer ${
                       isSelected
                         ? "bg-lavender text-bg-950 font-bold"
                         : "bg-bg-950 text-text-muted border border-border-dark hover:text-text-primary"
@@ -203,7 +203,7 @@ export function StrategyTesterTab() {
             <select
               value={roleFilter}
               onChange={(e) => setRoleFilter(e.target.value)}
-              className="w-full bg-bg-950 border border-border-dark text-text-primary text-xs rounded-lg px-2.5 py-1.5 focus:outline-none"
+              className="w-full bg-bg-950 border border-border-dark text-text-primary text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-lavender cursor-pointer"
             >
               <option value="ALL">All Matches</option>
               <option value="FAVOURITES">Market Favourites Only</option>
@@ -214,7 +214,7 @@ export function StrategyTesterTab() {
           <button
             onClick={handleRun}
             disabled={loading}
-            className="w-full py-2.5 bg-lemon hover:bg-lemon/90 text-bg-950 font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50"
+            className="w-full py-2.5 bg-lavender hover:bg-lavender/90 text-bg-950 font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-2 cursor-pointer disabled:opacity-50 shadow-sm"
           >
             <Play className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
             <span>{loading ? "Testing 24,000 Matches..." : "Run Out-of-Sample Test"}</span>
@@ -235,16 +235,16 @@ export function StrategyTesterTab() {
 
             return (
             <div className="bg-bg-900 border border-border-dark rounded-xl p-5 space-y-5">
-              {/* Headlined Holdout Result */}
+              {/* Headlined Holdout Result (Single Hero Metric in Lemon) */}
               <div className="bg-bg-950 border border-border-subdued rounded-xl p-4 space-y-2">
                 <div className="flex items-center justify-between">
-                  <span className="text-xs font-mono font-bold text-lemon uppercase tracking-wider">
+                  <span className="text-xs font-mono font-bold text-lavender uppercase tracking-wider">
                     HEADLINE: HOLDOUT SPLIT (2020/21 – 2024/25)
                   </span>
                   <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border uppercase ${
                     verdictBadge.includes("NO") || verdictBadge.includes("NEGATIVE")
                       ? "bg-coral/15 text-coral border-coral/30"
-                      : "bg-lemon/15 text-lemon border-lemon/30"
+                      : "bg-lavender/15 text-lavender border-lavender/30"
                   }`}>
                     {verdictBadge}
                   </span>
@@ -253,7 +253,7 @@ export function StrategyTesterTab() {
                 <div className="grid grid-cols-3 gap-3 pt-2">
                   <div>
                     <span className="text-[10px] text-text-muted block">Holdout ROI</span>
-                    <span className={`font-display font-bold text-xl tabular-nums ${
+                    <span className={`font-display font-light text-3xl tabular-nums ${
                       holdoutRoi >= 0 ? "text-lemon" : "text-coral"
                     }`}>
                       {holdoutRoi > 0 ? "+" : ""}{holdoutRoi.toFixed(2)}%
@@ -261,13 +261,13 @@ export function StrategyTesterTab() {
                   </div>
                   <div>
                     <span className="text-[10px] text-text-muted block">95% Bootstrap CI</span>
-                    <span className="font-mono text-xs text-text-primary tabular-nums block mt-1">
+                    <span className="font-mono text-xs text-text-primary tabular-nums block mt-2">
                       [{holdoutCi[1]}%, {holdoutCi[2]}%]
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-text-muted block">Holdout Bets</span>
-                    <span className="font-mono font-bold text-text-primary text-sm tabular-nums block mt-1">
+                    <span className="font-mono font-medium text-text-primary text-base tabular-nums block mt-2">
                       {holdout.total_bets ?? 0}
                     </span>
                   </div>
@@ -281,7 +281,7 @@ export function StrategyTesterTab() {
                     <tr>
                       <th className="py-2.5 px-3">Metric</th>
                       <th className="py-2.5 px-3 text-lavender">Design Split (2012-2020)</th>
-                      <th className="py-2.5 px-3 text-lemon">Holdout Split (2020-2025)</th>
+                      <th className="py-2.5 px-3 text-lavender">Holdout Split (2020-2025)</th>
                     </tr>
                   </thead>
                   <tbody className="divide-y divide-border-dark/60">
@@ -297,7 +297,7 @@ export function StrategyTesterTab() {
                     </tr>
                     <tr>
                       <td className="py-2.5 px-3 text-text-muted">Flat Stake ROI</td>
-                      <td className={`py-2.5 px-3 ${designRoi >= 0 ? "text-lemon" : "text-coral"}`}>
+                      <td className={`py-2.5 px-3 ${designRoi >= 0 ? "text-lavender" : "text-coral"}`}>
                         {designRoi > 0 ? "+" : ""}{designRoi.toFixed(2)}%
                       </td>
                       <td className={`py-2.5 px-3 font-bold ${holdoutRoi >= 0 ? "text-lemon" : "text-coral"}`}>
@@ -338,11 +338,11 @@ export function StrategyTesterTab() {
 
           {/* Past Trials Log */}
           {trials.recent.length > 0 && (
-            <div className="bg-bg-900 border border-border-dark rounded-xl p-4 space-y-3">
+            <div className="bg-bg-900 border border-border-dark rounded-xl p-4 lg:p-5 space-y-3">
               <div className="flex items-center justify-between">
                 <h5 className="font-display font-semibold text-xs text-text-primary flex items-center gap-1.5">
                   <History className="w-3.5 h-3.5 text-lavender" />
-                  Recent Preregistered Trials in SQLite
+                  Recent Logged Trials in SQLite
                 </h5>
                 <span className="text-[10px] text-text-muted font-mono">{trials.total_trials} total</span>
               </div>
@@ -378,4 +378,3 @@ export function StrategyTesterTab() {
     </div>
   );
 }
-

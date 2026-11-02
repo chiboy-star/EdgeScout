@@ -81,7 +81,7 @@ export function CommandMenu({
                 onSelect={() => navigateTo("shortlist")}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-primary hover:bg-bg-800 cursor-pointer transition-colors"
               >
-                <Sparkles className="w-4 h-4 text-lemon" />
+                <Sparkles className="w-4 h-4 text-lavender" />
                 <span>Today (Suggestion Shortlist)</span>
               </Command.Item>
               <Command.Item
@@ -113,10 +113,10 @@ export function CommandMenu({
                 <span>Strategy Tester (13 Seasons)</span>
               </Command.Item>
               <Command.Item
-                onSelect={() => navigateTo("performance")}
+                onSelect={() => navigateTo("ledger")}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-primary hover:bg-bg-800 cursor-pointer transition-colors"
               >
-                <TrendingUp className="w-4 h-4 text-lemon" />
+                <TrendingUp className="w-4 h-4 text-lavender" />
                 <span>Performance & Equity Curve</span>
               </Command.Item>
             </Command.Group>
@@ -129,7 +129,7 @@ export function CommandMenu({
                 }}
                 className="flex items-center gap-3 px-3 py-2.5 rounded-lg text-text-primary hover:bg-bg-800 cursor-pointer transition-colors"
               >
-                <RefreshCw className="w-4 h-4 text-lemon" />
+                <RefreshCw className="w-4 h-4 text-lavender" />
                 <span>Auto-settle open bets from real results feed</span>
               </Command.Item>
 

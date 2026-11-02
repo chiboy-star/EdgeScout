@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import { 
   ShortlistResponse, 
   ShortlistCandidate 
@@ -15,7 +15,8 @@ import {
   AlertCircle,
   HelpCircle,
   SlidersHorizontal,
-  ExternalLink
+  ExternalLink,
+  Clock
 } from "lucide-react";
 
 interface ShortlistTabProps {
@@ -33,6 +34,29 @@ export function ShortlistTab({
 }: ShortlistTabProps) {
   const [expandedFacts, setExpandedFacts] = useState<Record<string, boolean>>({});
   const [placingIds, setPlacingIds] = useState<Record<string, boolean>>({});
+  const [bannerCollapsed, setBannerCollapsed] = useState<boolean>(false);
+
+  // Initialize banner collapse state from sessionStorage after mount
+  useEffect(() => {
+    try {
+      const saved = sessionStorage.getItem("edgescout_banner_collapsed");
+      if (saved === "true") {
+        setBannerCollapsed(true);
+      }
+    } catch {
+      // Ignore in SSR
+    }
+  }, []);
+
+  const toggleBanner = () => {
+    const next = !bannerCollapsed;
+    setBannerCollapsed(next);
+    try {
+      sessionStorage.setItem("edgescout_banner_collapsed", String(next));
+    } catch {
+      // Ignore
+    }
+  };
 
   const toggleFacts = (id: string) => {
     setExpandedFacts(prev => ({ ...prev, [id]: !prev[id] }));
@@ -50,7 +74,7 @@ export function ShortlistTab({
   if (loading && !shortlist) {
     return (
       <div className="space-y-6 animate-pulse">
-        <div className="h-24 bg-bg-900 border border-border-dark rounded-xl" />
+        <div className="h-20 bg-bg-900 border border-border-dark rounded-xl" />
         <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
           {[1, 2, 3].map(i => (
             <div key={i} className="h-80 bg-bg-900 border border-border-dark rounded-xl" />
@@ -61,71 +85,131 @@ export function ShortlistTab({
   }
 
   const tiers = shortlist?.tiers || { Steady: [], Balanced: [], "Long shot": [] };
+  const totalShortlisted = (tiers.Steady?.length || 0) + (tiers.Balanced?.length || 0) + (tiers["Long shot"]?.length || 0);
 
   return (
-    <div className="space-y-8">
-      {/* Persistent Disclaimer Banner */}
-      <div className="bg-bg-900/80 border border-border-dark rounded-xl p-4 lg:p-5 relative overflow-hidden">
-        <div className="absolute top-0 left-0 w-1.5 h-full bg-lemon" />
-        <div className="flex items-start gap-3 pl-2">
-          <ShieldAlert className="w-5 h-5 text-lemon shrink-0 mt-0.5" />
-          <div className="space-y-1">
-            <h3 className="font-display font-semibold text-text-primary text-sm tracking-tight flex items-center gap-2">
-              LOWEST-COST PICK, NOT A PREDICTION OF PROFIT
-            </h3>
-            <p className="text-xs text-text-muted leading-relaxed">
-              Bookmaker margin guarantees that the average bet loses money over time. EdgeScout does <strong className="text-text-primary font-medium">not</strong> predict match winners or guarantee profits. Selections below simply minimize expected friction (margin & cost) against the market closing line.
-            </p>
+    <div className="space-y-6">
+      {/* Disclaimer Banner: Full or Collapsed */}
+      {bannerCollapsed ? (
+        <div className="bg-bg-900/90 border border-border-dark rounded-xl px-4 py-2.5 flex items-center justify-between text-xs text-text-muted transition-all">
+          <div className="flex items-center gap-2 overflow-hidden truncate">
+            <ShieldAlert className="w-4 h-4 text-lavender shrink-0" />
+            <span className="truncate">
+              <strong>Price Discipline:</strong> Lowest-cost picks, not a prediction of profit. Bookmaker margins guarantee average loss over time.
+            </span>
+          </div>
+          <button 
+            onClick={toggleBanner}
+            className="text-[11px] font-mono text-lavender hover:underline shrink-0 ml-3 flex items-center gap-1 cursor-pointer"
+          >
+            <span>Show details</span>
+            <ChevronDown className="w-3 h-3" />
+          </button>
+        </div>
+      ) : (
+        <div className="bg-bg-900/80 border border-border-dark rounded-xl p-4 lg:p-5 relative overflow-hidden transition-all">
+          <div className="absolute top-0 left-0 w-1.5 h-full bg-lavender" />
+          <div className="flex items-start justify-between gap-3 pl-2">
+            <div className="flex items-start gap-3">
+              <ShieldAlert className="w-5 h-5 text-lavender shrink-0 mt-0.5" />
+              <div className="space-y-1">
+                <h3 className="font-display font-semibold text-text-primary text-sm tracking-tight flex items-center gap-2">
+                  LOWEST-COST PICK, NOT A PREDICTION OF PROFIT
+                </h3>
+                <p className="text-xs text-text-muted leading-relaxed">
+                  Bookmaker margin guarantees that the average bet loses money over time. EdgeScout does <strong className="text-text-primary font-medium">not</strong> predict match winners or guarantee profits. Selections below simply minimize expected friction (margin & cost) against the market line.
+                </p>
+              </div>
+            </div>
+            <button
+              onClick={toggleBanner}
+              className="text-[11px] font-mono text-lavender hover:underline shrink-0 flex items-center gap-1 cursor-pointer pt-0.5"
+              title="Minimize banner"
+            >
+              <span>Minimize</span>
+              <ChevronUp className="w-3 h-3" />
+            </button>
           </div>
         </div>
-      </div>
+      )}
 
-      {/* Tier Columns */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
-        {/* Tier 1: Steady */}
-        <TierColumn
-          title="Steady"
-          subtitle="Shin Market Probability ≥ 55%"
-          badge="High Implied Prob"
-          badgeColor="bg-lemon/10 text-lemon border-lemon/30"
-          candidates={tiers.Steady}
-          emptyText="No fixtures qualify for the Steady tier today. Market prices do not offer sufficiently low margin or favorable conditions."
-          expandedFacts={expandedFacts}
-          placingIds={placingIds}
-          onToggleFacts={toggleFacts}
-          onPlaceBet={handleBetClick}
-          onOpenCustomOdds={onOpenCustomOdds}
-        />
+      {/* Main Body: Single Unified Empty State OR Tier Columns */}
+      {totalShortlisted === 0 ? (
+        <div className="bg-bg-900 border border-border-dark rounded-xl p-8 lg:p-12 text-center space-y-4 max-w-xl mx-auto shadow-sm">
+          <div className="w-12 h-12 rounded-full bg-bg-800 border border-border-subdued flex items-center justify-center mx-auto text-lavender">
+            <SlidersHorizontal className="w-6 h-6" />
+          </div>
+          <div className="space-y-1.5">
+            <h4 className="font-display font-semibold text-text-primary text-base">
+              No Fixtures Meet Price-Discipline Criteria Today
+            </h4>
+            <p className="text-xs text-text-muted leading-relaxed">
+              Bookmaker margins on upcoming fixtures currently exceed our minimum cost threshold, or liquid market odds have not yet opened for today's matches. EdgeScout never forces bets into negative EV territory.
+            </p>
+          </div>
+          <div className="flex items-center justify-center gap-3 pt-2">
+            <button
+              onClick={() => onOpenCustomOdds()}
+              className="bg-lavender text-bg-950 font-medium px-4 py-2 rounded-lg text-xs hover:bg-lavender/90 transition-colors shadow-sm cursor-pointer"
+            >
+              Enter Custom SportyBet Odds
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
+          {/* Tier 1: Steady */}
+          <TierColumn
+            title="Steady"
+            subtitle="Shin Market Probability ≥ 55%"
+            badge="High Implied Prob"
+            badgeColor="bg-lavender/15 text-lavender border-lavender/30"
+            candidates={tiers.Steady || []}
+            emptyText="No fixtures qualify for the Steady tier today."
+            expandedFacts={expandedFacts}
+            placingIds={placingIds}
+            onToggleFacts={toggleFacts}
+            onPlaceBet={handleBetClick}
+            onOpenCustomOdds={onOpenCustomOdds}
+          />
 
-        {/* Tier 2: Balanced */}
-        <TierColumn
-          title="Balanced"
-          subtitle="Shin Market Probability 35% – 55%"
-          badge="Contested"
-          badgeColor="bg-lavender/10 text-lavender border-lavender/30"
-          candidates={tiers.Balanced}
-          emptyText="No fixtures in the Balanced tier meet the cost criteria today."
-          expandedFacts={expandedFacts}
-          placingIds={placingIds}
-          onToggleFacts={toggleFacts}
-          onPlaceBet={handleBetClick}
-          onOpenCustomOdds={onOpenCustomOdds}
-        />
+          {/* Tier 2: Balanced */}
+          <TierColumn
+            title="Balanced"
+            subtitle="Shin Market Probability 35% – 55%"
+            badge="Contested"
+            badgeColor="bg-lavender/10 text-lavender border-lavender/30"
+            candidates={tiers.Balanced || []}
+            emptyText="No fixtures in the Balanced tier meet cost criteria today."
+            expandedFacts={expandedFacts}
+            placingIds={placingIds}
+            onToggleFacts={toggleFacts}
+            onPlaceBet={handleBetClick}
+            onOpenCustomOdds={onOpenCustomOdds}
+          />
 
-        {/* Tier 3: Long shot */}
-        <TierColumn
-          title="Long shot"
-          subtitle="Shin Market Probability < 20%"
-          badge="Hard Stake Cap: 0.25%"
-          badgeColor="bg-coral/10 text-coral border-coral/30"
-          candidates={tiers["Long shot"]}
-          emptyText="No longshot fixtures qualify today. Longshot bias in bookmaker margins typically renders underdog bets high-cost."
-          expandedFacts={expandedFacts}
-          placingIds={placingIds}
-          onToggleFacts={toggleFacts}
-          onPlaceBet={handleBetClick}
-          onOpenCustomOdds={onOpenCustomOdds}
-        />
+          {/* Tier 3: Long shot */}
+          <TierColumn
+            title="Long shot"
+            subtitle="Shin Market Probability < 20%"
+            badge="Hard Cap: 0.25%"
+            badgeColor="bg-coral/10 text-coral border-coral/30"
+            candidates={tiers["Long shot"] || []}
+            emptyText="No longshot fixtures meet the margin threshold today."
+            expandedFacts={expandedFacts}
+            placingIds={placingIds}
+            onToggleFacts={toggleFacts}
+            onPlaceBet={handleBetClick}
+            onOpenCustomOdds={onOpenCustomOdds}
+          />
+        </div>
+      )}
+
+      {/* Persistent Footer Line */}
+      <div className="border-t border-border-dark pt-4 text-center">
+        <p className="text-[11px] font-mono text-text-muted">
+          Price Discipline Ledger • 1% Flat Default Stake • 2% Single Bet Cap • 6% Daily Exposure Cap • All bets lose margin over time
+        </p>
       </div>
     </div>
   );
@@ -164,7 +248,7 @@ function TierColumn({
       <div className="bg-bg-900 border border-border-dark rounded-xl p-4 flex items-center justify-between">
         <div>
           <div className="flex items-center gap-2">
-            <h4 className="font-display font-bold text-base text-text-primary">{title}</h4>
+            <h4 className="font-display font-semibold text-base text-text-primary">{title}</h4>
             <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full border ${badgeColor}`}>
               {badge}
             </span>
@@ -176,16 +260,16 @@ function TierColumn({
         </span>
       </div>
 
-      {/* Cards List or Empty State */}
+      {/* Cards List or Empty Notice */}
       {candidates.length === 0 ? (
-        <div className="bg-bg-900/40 border border-dashed border-border-dark rounded-xl p-8 text-center flex flex-col items-center justify-center space-y-2 h-64">
-          <Info className="w-6 h-6 text-text-muted" />
+        <div className="bg-bg-900/40 border border-dashed border-border-dark rounded-xl p-6 text-center flex flex-col items-center justify-center space-y-1.5 h-48">
+          <Info className="w-5 h-5 text-text-muted" />
           <p className="text-xs font-medium text-text-primary">Tier Empty</p>
           <p className="text-[11px] text-text-muted max-w-xs">{emptyText}</p>
         </div>
       ) : (
         <div className="space-y-4">
-          {candidates.map((candidate, idx) => {
+          {candidates.map((candidate) => {
             const cardKey = candidate.match_id + candidate.selection;
             const isExpanded = !!expandedFacts[cardKey];
             const isPlacing = !!placingIds[cardKey];
@@ -195,12 +279,19 @@ function TierColumn({
                 key={cardKey} 
                 className="bg-bg-900 border border-border-dark hover:border-border-subdued rounded-xl p-4 transition-all duration-150 space-y-3.5 relative shadow-sm"
               >
-                {/* Demo Badge if demo */}
-                {candidate.is_demo && (
-                  <span className="absolute top-3 right-3 text-[9px] font-mono uppercase bg-coral/20 text-coral border border-coral/30 px-1.5 py-0.5 rounded font-bold">
-                    DEMO
-                  </span>
-                )}
+                {/* Badges in top right: Demo and Limited History */}
+                <div className="absolute top-3 right-3 flex items-center gap-1.5">
+                  {candidate.limited_history && (
+                    <span className="text-[9px] font-mono uppercase bg-bg-800 text-lavender border border-border-subdued px-1.5 py-0.5 rounded font-medium">
+                      Limited history
+                    </span>
+                  )}
+                  {candidate.is_demo && (
+                    <span className="text-[9px] font-mono uppercase bg-coral/20 text-coral border border-coral/30 px-1.5 py-0.5 rounded font-bold">
+                      DEMO
+                    </span>
+                  )}
+                </div>
 
                 {/* Match & League */}
                 <div>
@@ -218,8 +309,8 @@ function TierColumn({
                   </h5>
                 </div>
 
-                {/* Selection & Odds */}
-                <div className="grid grid-cols-2 gap-2 bg-bg-950/60 p-2.5 rounded-lg border border-border-dark">
+                {/* Selection & Lighter/Larger Display Number for Odds Taken */}
+                <div className="grid grid-cols-2 gap-2 bg-bg-950/60 p-2.5 rounded-lg border border-border-dark items-center">
                   <div>
                     <span className="text-[10px] text-text-muted block">Selection</span>
                     <span className="font-medium text-text-primary text-xs truncate block">
@@ -228,7 +319,7 @@ function TierColumn({
                   </div>
                   <div className="text-right">
                     <span className="text-[10px] text-text-muted block">Odds Taken</span>
-                    <span className="font-mono font-bold text-lemon text-sm tabular-nums">
+                    <span className="font-display font-light text-lemon text-xl tabular-nums">
                       {candidate.odds_taken.toFixed(2)}
                     </span>
                   </div>
@@ -264,7 +355,7 @@ function TierColumn({
                     </span>
                     {candidate.odds_fetched_time_label && (
                       <span className="font-mono text-text-muted">
-                        fetched at {candidate.odds_fetched_time_label}
+                        odds fetched at {candidate.odds_fetched_time_label}
                       </span>
                     )}
                     {candidate.is_stale ? (
@@ -279,7 +370,7 @@ function TierColumn({
                   </div>
                   <button
                     onClick={() => onOpenCustomOdds(candidate.match_name)}
-                    className="text-lavender hover:underline flex items-center gap-1 shrink-0 ml-1"
+                    className="text-lavender hover:underline flex items-center gap-1 shrink-0 ml-1 cursor-pointer"
                   >
                     <span>Check SportyBet</span>
                     <SlidersHorizontal className="w-2.5 h-2.5" />
@@ -301,7 +392,7 @@ function TierColumn({
                   <button
                     onClick={() => onPlaceBet(candidate)}
                     disabled={isPlacing}
-                    className="px-3 py-2 bg-lemon hover:bg-lemon/90 text-bg-950 font-medium text-xs rounded-lg transition-all flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
+                    className="px-3 py-2 bg-lavender hover:bg-lavender/90 text-bg-950 font-medium text-xs rounded-lg transition-all flex items-center gap-1.5 shadow-sm active:scale-95 disabled:opacity-50 cursor-pointer"
                   >
                     <PlusCircle className="w-3.5 h-3.5" />
                     <span>{isPlacing ? "Adding..." : "Add to Ledger"}</span>
@@ -323,19 +414,19 @@ function TierColumn({
                       <div className="flex justify-between">
                         <span className="text-text-muted">Home Form (Last 5):</span>
                         <span className="font-mono font-medium text-text-primary">
-                          {candidate.supporting_facts.home_form_last5}
+                          {candidate.supporting_facts.home_form_last5 || "N/A"}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-text-muted">Away Form (Last 5):</span>
                         <span className="font-mono font-medium text-text-primary">
-                          {candidate.supporting_facts.away_form_last5}
+                          {candidate.supporting_facts.away_form_last5 || "N/A"}
                         </span>
                       </div>
                       <div className="flex justify-between">
                         <span className="text-text-muted">Head-to-Head (Last 5):</span>
                         <span className="font-mono font-medium text-text-primary">
-                          {candidate.supporting_facts.h2h_last5}
+                          {candidate.supporting_facts.h2h_last5 || "N/A"}
                         </span>
                       </div>
                       <div className="border-t border-border-dark pt-1.5 mt-1.5">
@@ -352,7 +443,7 @@ function TierColumn({
                         </div>
                         <div className="flex justify-between">
                           <span className="text-text-muted">Historical ROI:</span>
-                          <span className={`font-mono ${candidate.historical_bucket.historical_roi_pct >= 0 ? "text-lemon" : "text-coral"}`}>
+                          <span className={`font-mono ${candidate.historical_bucket.historical_roi_pct >= 0 ? "text-lavender" : "text-coral"}`}>
                             {candidate.historical_bucket.historical_roi_pct > 0 ? "+" : ""}
                             {candidate.historical_bucket.historical_roi_pct.toFixed(2)}%
                           </span>
@@ -369,7 +460,7 @@ function TierColumn({
                 </div>
 
                 {/* Persistent Card Label */}
-                <div className="text-[10px] text-center text-text-muted/80 italic font-mono pt-1">
+                <div className="text-[10px] text-center text-text-muted italic font-mono pt-1">
                   {candidate.pick_label}
                 </div>
               </div>
@@ -380,4 +471,3 @@ function TierColumn({
     </div>
   );
 }
-

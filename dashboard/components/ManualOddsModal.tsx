@@ -86,7 +86,7 @@ export function ManualOddsModal({
       <div className="w-full max-w-md bg-bg-900 border border-border-subdued rounded-2xl shadow-2xl p-5 space-y-4">
         <div className="flex items-center justify-between pb-3 border-b border-border-dark">
           <div className="flex items-center gap-2">
-            <div className="p-1.5 rounded-lg bg-lemon/10 text-lemon">
+            <div className="p-1.5 rounded-lg bg-lavender/10 text-lavender">
               <Calculator className="w-4 h-4" />
             </div>
             <div>
@@ -117,7 +117,7 @@ export function ManualOddsModal({
               onChange={(e) => setMatchName(e.target.value)}
               placeholder="e.g. Arsenal vs Chelsea"
               required
-              className="w-full bg-bg-950 border border-border-dark rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-lemon"
+              className="w-full bg-bg-950 border border-border-dark rounded-lg px-3 py-2 text-text-primary focus:outline-none focus:border-lavender"
             />
           </div>
 
@@ -131,7 +131,7 @@ export function ManualOddsModal({
                 value={homeOdds}
                 onChange={(e) => setHomeOdds(e.target.value)}
                 required
-                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 font-mono text-lemon font-bold text-right focus:outline-none"
+                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 font-mono text-text-primary font-bold text-right focus:outline-none focus:border-lavender"
               />
             </div>
             <div>
@@ -143,7 +143,7 @@ export function ManualOddsModal({
                 value={drawOdds}
                 onChange={(e) => setDrawOdds(e.target.value)}
                 required
-                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 font-mono text-lemon font-bold text-right focus:outline-none"
+                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 font-mono text-text-primary font-bold text-right focus:outline-none focus:border-lavender"
               />
             </div>
             <div>
@@ -155,7 +155,7 @@ export function ManualOddsModal({
                 value={awayOdds}
                 onChange={(e) => setAwayOdds(e.target.value)}
                 required
-                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 font-mono text-lemon font-bold text-right focus:outline-none"
+                className="w-full bg-bg-950 border border-border-dark rounded-lg px-2.5 py-1.5 font-mono text-text-primary font-bold text-right focus:outline-none focus:border-lavender"
               />
             </div>
           </div>
@@ -210,7 +210,7 @@ export function ManualOddsModal({
           <button
             type="submit"
             disabled={!valid || submitting}
-            className="w-full py-2.5 bg-lemon hover:bg-lemon/90 text-bg-950 font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 mt-2"
+            className="w-full py-2.5 bg-lavender hover:bg-lavender/90 text-bg-950 font-medium text-xs rounded-lg transition-all flex items-center justify-center gap-1.5 cursor-pointer disabled:opacity-50 mt-2 shadow-sm"
           >
             <PlusCircle className="w-4 h-4" />
             <span>{submitting ? "Placing..." : "Add Custom Bet to Ledger"}</span>

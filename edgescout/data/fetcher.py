@@ -28,6 +28,8 @@ class DataFetcher:
         self.headers = {
             "User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EdgeScout/1.0"
         }
+        self.session = requests.Session()
+        self.session.trust_env = False
 
     def _get_fd_url(self, season: str, league_code: str) -> str:
         """football-data.co.uk URL format: https://www.football-data.co.uk/mmz4281/2324/E0.csv"""
@@ -55,7 +57,7 @@ class DataFetcher:
 
         url = self._get_fd_url(season, league_code)
         try:
-            resp = requests.get(url, headers=self.headers, timeout=15)
+            resp = self.session.get(url, headers=self.headers, timeout=15)
             if resp.status_code == 200 and len(resp.content) > 100:
                 # Save raw response to disk
                 with open(raw_file, "wb") as f:

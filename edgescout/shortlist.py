@@ -78,7 +78,9 @@ def fetch_upcoming_fixtures_with_odds(force_refresh: bool = False) -> pd.DataFra
 
     headers = {"User-Agent": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) EdgeScout/1.0"}
     try:
-        resp = requests.get(FIXTURES_CSV_URL, headers=headers, timeout=12)
+        session = requests.Session()
+        session.trust_env = False
+        resp = session.get(FIXTURES_CSV_URL, headers=headers, timeout=12)
         if resp.status_code == 200 and len(resp.content) > 100:
             df = pd.read_csv(io.BytesIO(resp.content))
             df.columns = [c.replace('\ufeff', '').strip() for c in df.columns]
@@ -110,8 +112,9 @@ def get_team_recent_form(conn: sqlite3.Connection, team_name: str, n: int = 5) -
     rows = cur.fetchall()
 
     if not rows:
-        return {'record': ['D', 'D', 'D', 'D', 'D'], 'points': 5, 'last_match_date': None}
+        return {'record': ['D', 'D', 'D', 'D', 'D'], 'points': 5, 'last_match_date': None, 'limited_history': True}
 
+    is_limited = len(rows) < n
     results = []
     points = 0
     last_date = rows[0][0]
@@ -139,7 +142,8 @@ def get_team_recent_form(conn: sqlite3.Connection, team_name: str, n: int = 5) -
     return {
         'record': results,
         'points': points,
-        'last_match_date': last_date
+        'last_match_date': last_date,
+        'limited_history': is_limited
     }
 
 
@@ -404,6 +408,8 @@ def generate_suggestion_shortlist(
                         'odds_fetched_time_label': odds_meta['fetched_time_label'],
                         'is_stale': odds_meta['is_stale'],
                         'odds_age_hours': odds_meta['age_hours'],
+                        'limited_history': h_form.get('limited_history', False) or a_form.get('limited_history', False),
+                        'history_badge': "Limited history" if (h_form.get('limited_history', False) or a_form.get('limited_history', False)) else "5-match sample",
                         'pick_label': "Lowest-cost pick, not a prediction of profit."
                     })
 
@@ -598,6 +604,8 @@ def _generate_fallback_candidates(bankroll: float) -> List[Dict[str, Any]]:
         s['odds_fetched_time_label'] = meta['fetched_time_label']
         s['is_stale'] = meta['is_stale']
         s['odds_age_hours'] = meta['age_hours']
+        s['limited_history'] = False
+        s['history_badge'] = "5-match sample"
 
     return samples
 

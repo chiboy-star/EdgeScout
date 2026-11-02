@@ -55,14 +55,13 @@ export function Navbar({
     { id: "ledger", label: "Paper Ledger", icon: BookOpen, badge: openBetsCount > 0 ? openBetsCount : null },
     { id: "accumulator", label: "Accumulator Cost", icon: Layers },
     { id: "strategy", label: "Strategy Tester", icon: FlaskConical },
-    { id: "performance", label: "Performance", icon: TrendingUp },
   ];
 
   const exposureNearCap = dailyExposurePct >= 5.0;
 
   return (
-    <header className="sticky top-0 z-30 bg-bg-950/90 backdrop-blur-md border-b border-border-dark px-4 lg:px-8 py-3">
-      <div className="max-w-7xl mx-auto flex flex-col md:flex-row md:items-center justify-between gap-3">
+    <header className="sticky top-0 z-30 bg-bg-950/90 backdrop-blur-md border-b border-border-dark py-3">
+      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 flex flex-col md:flex-row md:items-center justify-between gap-3">
         {/* Logo and Tagline */}
         <div className="flex items-center justify-between">
           <div className="flex items-center space-x-3">
@@ -73,9 +72,6 @@ export function Navbar({
               <div className="flex items-center gap-2">
                 <span className="font-display font-bold text-lg tracking-tight text-text-primary">
                   EdgeScout
-                </span>
-                <span className="text-[10px] font-mono tracking-widest uppercase bg-bg-900 border border-border-subdued px-1.5 py-0.5 rounded text-lavender">
-                  Phase 4
                 </span>
               </div>
               <p className="text-xs text-text-muted">
@@ -96,10 +92,10 @@ export function Navbar({
 
         {/* Live Metrics & Quick Stats */}
         <div className="flex items-center flex-wrap gap-2 lg:gap-3 text-xs">
-          {/* Bankroll Badge */}
+          {/* Bankroll Badge (Single Hero Metric in Lemon) */}
           <div className="flex items-center bg-bg-900 border border-border-dark rounded-lg px-3 py-1.5 shadow-inner">
             <span className="text-text-muted mr-2 font-mono text-[11px] uppercase">Bankroll</span>
-            <span className="font-display font-semibold text-lemon tabular-nums text-sm">
+            <span className="font-display font-light text-lemon tabular-nums text-lg">
               ₦{bankroll.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}
             </span>
           </div>
@@ -127,7 +123,7 @@ export function Navbar({
             <span className="font-mono text-[11px] tabular-nums">{timeAgo}</span>
             <button
               onClick={onRefresh}
-              className="ml-1 p-0.5 hover:text-lemon transition-colors"
+              className="ml-1 p-0.5 hover:text-lavender transition-colors"
               title="Refresh live data"
             >
               <RotateCcw className="w-3 h-3" />
@@ -149,7 +145,7 @@ export function Navbar({
       </div>
 
       {/* Tabs navigation */}
-      <nav className="max-w-7xl mx-auto mt-3 flex items-center gap-1 overflow-x-auto pb-1 scrollbar-none">
+      <nav className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 mt-2.5 flex items-center gap-1.5 overflow-x-auto pb-1 scrollbar-none">
         {navItems.map((item) => {
           const Icon = item.icon;
           const isActive = activeTab === item.id;
@@ -159,14 +155,14 @@ export function Navbar({
               onClick={() => setActiveTab(item.id)}
               className={`flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium whitespace-nowrap transition-all duration-150 ${
                 isActive
-                  ? "bg-bg-800 text-lemon border border-border-subdued shadow-sm"
+                  ? "bg-lavender/15 text-lavender border border-lavender/30 shadow-sm"
                   : "text-text-muted hover:text-text-primary hover:bg-bg-900"
               }`}
             >
-              <Icon className={`w-3.5 h-3.5 ${isActive ? "text-lemon" : "text-text-muted"}`} />
+              <Icon className={`w-3.5 h-3.5 ${isActive ? "text-lavender" : "text-text-muted"}`} />
               <span>{item.label}</span>
               {item.badge !== null && item.badge !== undefined && (
-                <span className="bg-lemon text-bg-950 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
+                <span className="bg-lavender text-bg-950 font-bold px-1.5 py-0.2 rounded-full text-[10px]">
                   {item.badge}
                 </span>
               )}

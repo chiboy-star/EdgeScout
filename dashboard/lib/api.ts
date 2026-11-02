@@ -39,6 +39,8 @@ export interface ShortlistCandidate {
   odds_fetched_time_label?: string;
   is_stale?: boolean;
   odds_age_hours?: number;
+  limited_history?: boolean;
+  history_badge?: string;
   pick_label: string;
   is_demo?: boolean;
 }
@@ -70,12 +72,14 @@ export interface PaperBet {
   odds_taken: number;
   closing_odds: number | null;
   clv: number | null;
+  clv_percent?: number | null;
   stake: number;
   stake_fraction: number;
   status: "OPEN" | "WON" | "LOST" | "VOID" | "UNDONE";
   settlement_type: string | null;
   profit_loss: number;
   placed_at: string;
+  created_at?: string;
   settled_at: string | null;
 }
 
@@ -104,23 +108,32 @@ export interface LedgerSummary {
 
 export interface FixtureItem {
   id: string;
+  match_id?: string;
   match_name: string;
+  home_team?: string;
+  away_team?: string;
   league: string;
+  league_code?: string;
   utc_date: string;
-  odds: {
+  kickoff_time?: string;
+  is_today?: boolean;
+  is_this_week?: boolean;
+  has_odds?: boolean;
+  odds?: {
     home: number;
     draw: number;
     away: number;
     source: string;
-  };
-  shin_probs: {
+  } | null;
+  shin_probs?: {
     home_pct: number;
     draw_pct: number;
     away_pct: number;
-  };
+  } | null;
   margin_pct: number;
   expected_loss_per_1000: number;
-  category: "Market Favourite" | "Contested" | "Longshot";
+  category: "Market Favourite" | "Contested" | "Longshot" | "Awaiting Odds" | string;
+  dominant_category?: string;
   risk_badge: string;
   is_demo?: boolean;
 }
@@ -220,6 +233,7 @@ export const api = {
     max_odds: number;
     selections: string[];
     role_filter: string;
+    run_type?: string;
   }): Promise<any> {
     const res = await fetch('/api/strategy/run', {
       method: 'POST',

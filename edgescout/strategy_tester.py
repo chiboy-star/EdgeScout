@@ -47,6 +47,7 @@ def init_strategy_trials_table(conn: sqlite3.Connection):
     cursor.execute("""
     CREATE TABLE IF NOT EXISTS strategy_trials (
         trial_id INTEGER PRIMARY KEY AUTOINCREMENT,
+        run_type TEXT DEFAULT 'user',
         executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
         rule_description TEXT NOT NULL,
         leagues TEXT NOT NULL,
@@ -117,7 +118,8 @@ def run_strategy_test(
     rule: StrategyRule, 
     db_path: str = str(DEFAULT_DB_PATH),
     flat_stake: float = 100.0,
-    log_trial: bool = True
+    log_trial: bool = True,
+    run_type: str = "user"
 ) -> Dict[str, Any]:
     """
     Executes a user rule across 13 historical seasons in SQLite,
@@ -276,12 +278,13 @@ def run_strategy_test(
         cursor = conn.cursor()
         cursor.execute("""
         INSERT INTO strategy_trials (
-            rule_description, leagues, selections, role_filter, min_odds, max_odds, odds_source,
+            run_type, rule_description, leagues, selections, role_filter, min_odds, max_odds, odds_source,
             design_bets, design_roi, design_ci_low, design_ci_high,
             holdout_bets, holdout_roi, holdout_ci_low, holdout_ci_high, holdout_baseline,
             verdict
-        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?);
         """, (
+            run_type,
             rule.name,
             ",".join(rule.leagues),
             ",".join(rule.selections),
@@ -302,9 +305,9 @@ def run_strategy_test(
         ))
         conn.commit()
 
-    # Query total trials counter
+    # Query total trials counter (excluding test runs)
     cur = conn.cursor()
-    cur.execute("SELECT COUNT(*) FROM strategy_trials;")
+    cur.execute("SELECT COUNT(*) FROM strategy_trials WHERE run_type != 'test';")
     total_trials = int(cur.fetchone()[0])
     conn.close()
 

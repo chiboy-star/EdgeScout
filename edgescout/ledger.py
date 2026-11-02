@@ -139,7 +139,8 @@ class PaperLedger:
         selection: str,
         odds: float,
         stake: float,
-        stake_fraction: Optional[float] = None
+        stake_fraction: Optional[float] = None,
+        user_prob: Optional[float] = None
     ) -> Dict[str, Any]:
         """
         Places a paper bet with idempotency check.

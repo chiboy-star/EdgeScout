@@ -149,3 +149,4 @@ export function PerformanceTab({ ledger }: PerformanceTabProps) {
     </div>
   );
 }
+

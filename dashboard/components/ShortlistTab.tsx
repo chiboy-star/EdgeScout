@@ -256,14 +256,30 @@ function TierColumn({
                   </div>
                 </div>
 
-                {/* Reference Note */}
+                {/* Odds Freshness & Reference */}
                 <div className="flex items-center justify-between text-[10px] text-text-muted pt-1">
-                  <span className="font-mono bg-bg-950 px-1.5 py-0.5 rounded border border-border-dark">
-                    {candidate.odds_source}
-                  </span>
+                  <div className="flex items-center gap-1.5 flex-wrap">
+                    <span className="font-mono bg-bg-950 px-1.5 py-0.5 rounded border border-border-dark">
+                      {candidate.odds_source}
+                    </span>
+                    {candidate.odds_fetched_time_label && (
+                      <span className="font-mono text-text-muted">
+                        fetched at {candidate.odds_fetched_time_label}
+                      </span>
+                    )}
+                    {candidate.is_stale ? (
+                      <span className="px-1.5 py-0.5 bg-coral/20 text-coral border border-coral/30 rounded font-mono font-bold uppercase text-[9px]">
+                        STALE (&gt;24h)
+                      </span>
+                    ) : (
+                      <span className="px-1.5 py-0.5 bg-lemon/10 text-lemon border border-lemon/20 rounded font-mono text-[9px]">
+                        Fresh
+                      </span>
+                    )}
+                  </div>
                   <button
                     onClick={() => onOpenCustomOdds(candidate.match_name)}
-                    className="text-lavender hover:underline flex items-center gap-1"
+                    className="text-lavender hover:underline flex items-center gap-1 shrink-0 ml-1"
                   >
                     <span>Check SportyBet</span>
                     <SlidersHorizontal className="w-2.5 h-2.5" />
@@ -364,3 +380,4 @@ function TierColumn({
     </div>
   );
 }
+

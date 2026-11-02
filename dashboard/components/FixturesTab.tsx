@@ -211,3 +211,4 @@ function FixtureSection({
     </div>
   );
 }
+

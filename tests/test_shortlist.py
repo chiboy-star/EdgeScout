@@ -149,3 +149,4 @@ def test_shortlist_idempotency_integration():
         Path(db_path).unlink(missing_ok=True)
     except Exception:
         pass
+

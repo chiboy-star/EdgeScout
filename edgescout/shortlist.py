@@ -43,6 +43,24 @@ LEAGUE_DIV_MAP = {
 }
 
 
+def get_odds_cache_metadata() -> Dict[str, Any]:
+    """Returns freshness metadata for odds cache."""
+    if FIXTURES_CACHE_FILE.exists():
+        mtime = FIXTURES_CACHE_FILE.stat().st_mtime
+    else:
+        mtime = time.time()
+
+    age_seconds = time.time() - mtime
+    dt = datetime.fromtimestamp(mtime, timezone.utc)
+    is_stale = age_seconds > 86400 # Stale if older than 24 hours
+    return {
+        'fetched_at': dt.isoformat(),
+        'fetched_time_label': dt.strftime('%H:%M UTC'),
+        'is_stale': is_stale,
+        'age_hours': round(age_seconds / 3600.0, 1)
+    }
+
+
 def fetch_upcoming_fixtures_with_odds(force_refresh: bool = False) -> pd.DataFrame:
     """
     Fetches real upcoming fixtures with Bet365 pre-match odds from football-data.co.uk.
@@ -163,6 +181,9 @@ def get_head_to_head(conn: sqlite3.Connection, home_team: str, away_team: str, n
     }
 
 
+_ODDS_BUCKET_CACHE: Dict[Tuple[str, str, str], Dict[str, Any]] = {}
+
+
 def get_odds_bucket_stats(
     conn: sqlite3.Connection, 
     league_code: str, 
@@ -171,6 +192,7 @@ def get_odds_bucket_stats(
 ) -> Dict[str, Any]:
     """
     Queries historical ROI for that fixture's odds bucket and league from the 13 stored seasons.
+    Results are memoized to avoid redundant bootstrap resamplings.
     """
     if odds < 1.50:
         bucket_label = "Heavy Favourite (1.01 - 1.50)"
@@ -187,6 +209,10 @@ def get_odds_bucket_stats(
     else:
         bucket_label = "Longshot (> 5.00)"
         min_o, max_o = 5.00, 100.0
+
+    cache_key = (league_code, selection, bucket_label)
+    if cache_key in _ODDS_BUCKET_CACHE:
+        return _ODDS_BUCKET_CACHE[cache_key]
 
     sel_col = f"b365_{selection.lower()}"
     query = f"""
@@ -214,13 +240,15 @@ def get_odds_bucket_stats(
         rows = cur.fetchall()
 
     if not rows:
-        return {
+        res = {
             'bucket_label': bucket_label,
             'historical_bets': 0,
             'historical_roi_pct': -5.0,
             'roi_ci': (-5.0, -7.0, -3.0),
             'hit_rate_pct': 0.0
         }
+        _ODDS_BUCKET_CACHE[cache_key] = res
+        return res
 
     returns = []
     wins = 0
@@ -237,13 +265,15 @@ def get_odds_bucket_stats(
     hit_rate = (wins / n_bets) * 100.0
     roi_pt, ci_lo, ci_hi = bootstrap_ci(np.array(returns))
 
-    return {
+    res = {
         'bucket_label': bucket_label,
         'historical_bets': n_bets,
         'historical_roi_pct': round(roi_pct, 2),
         'roi_ci': (round(roi_pt, 2), round(ci_lo, 2), round(ci_hi, 2)),
         'hit_rate_pct': round(hit_rate, 1)
     }
+    _ODDS_BUCKET_CACHE[cache_key] = res
+    return res
 
 
 def generate_suggestion_shortlist(
@@ -260,6 +290,7 @@ def generate_suggestion_shortlist(
     """
     df_raw = fetch_upcoming_fixtures_with_odds()
     conn = sqlite3.connect(db_path)
+    odds_meta = get_odds_cache_metadata()
 
     candidates = []
 
@@ -279,7 +310,9 @@ def generate_suggestion_shortlist(
                     continue
 
                 div = str(row.get('Div', 'E0'))
-                league_name = LEAGUE_DIV_MAP.get(div, div)
+                if div not in LEAGUE_DIV_MAP:
+                    continue
+                league_name = LEAGUE_DIV_MAP[div]
                 home_team = str(row['HomeTeam'])
                 away_team = str(row['AwayTeam'])
                 match_date = str(row.get('Date', 'Upcoming'))
@@ -367,6 +400,10 @@ def generate_suggestion_shortlist(
                             'rest_days_away': rest_days_a
                         },
                         'historical_bucket': hist_stats,
+                        'odds_fetched_at': odds_meta['fetched_at'],
+                        'odds_fetched_time_label': odds_meta['fetched_time_label'],
+                        'is_stale': odds_meta['is_stale'],
+                        'odds_age_hours': odds_meta['age_hours'],
                         'pick_label': "Lowest-cost pick, not a prediction of profit."
                     })
 
@@ -555,4 +592,12 @@ def _generate_fallback_candidates(bankroll: float) -> List[Dict[str, Any]]:
             'is_demo': True
         }
     ]
+    meta = get_odds_cache_metadata()
+    for s in samples:
+        s['odds_fetched_at'] = meta['fetched_at']
+        s['odds_fetched_time_label'] = meta['fetched_time_label']
+        s['is_stale'] = meta['is_stale']
+        s['odds_age_hours'] = meta['age_hours']
+
     return samples
+

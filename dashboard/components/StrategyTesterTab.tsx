@@ -223,7 +223,17 @@ export function StrategyTesterTab() {
 
         {/* Results Pane */}
         <div className="lg:col-span-2 space-y-4">
-          {result ? (
+          {result ? (() => {
+            const holdout = result.holdout || {};
+            const design = result.design || {};
+            const holdoutRoi = holdout.flat_roi_pct ?? holdout.realized_roi_pct ?? 0;
+            const designRoi = design.flat_roi_pct ?? design.realized_roi_pct ?? 0;
+            const holdoutCi = holdout.roi_ci || holdout.roi_95_ci || [0, 0, 0];
+            const designCi = design.roi_ci || design.roi_95_ci || [0, 0, 0];
+            const verdictBadge = result.verdict_badge || (holdoutRoi < 0 ? "NEGATIVE ROI" : "NO EDGE OVER MARGIN");
+            const verdictProse = result.verdict_explanation || result.verdict || "Results evaluated.";
+
+            return (
             <div className="bg-bg-900 border border-border-dark rounded-xl p-5 space-y-5">
               {/* Headlined Holdout Result */}
               <div className="bg-bg-950 border border-border-subdued rounded-xl p-4 space-y-2">
@@ -232,11 +242,11 @@ export function StrategyTesterTab() {
                     HEADLINE: HOLDOUT SPLIT (2020/21 – 2024/25)
                   </span>
                   <span className={`px-2 py-0.5 rounded text-[10px] font-mono font-bold border uppercase ${
-                    result.verdict_badge.includes("NO") || result.verdict_badge.includes("NEGATIVE")
+                    verdictBadge.includes("NO") || verdictBadge.includes("NEGATIVE")
                       ? "bg-coral/15 text-coral border-coral/30"
                       : "bg-lemon/15 text-lemon border-lemon/30"
                   }`}>
-                    {result.verdict_badge}
+                    {verdictBadge}
                   </span>
                 </div>
 
@@ -244,21 +254,21 @@ export function StrategyTesterTab() {
                   <div>
                     <span className="text-[10px] text-text-muted block">Holdout ROI</span>
                     <span className={`font-display font-bold text-xl tabular-nums ${
-                      result.holdout.flat_roi_pct >= 0 ? "text-lemon" : "text-coral"
+                      holdoutRoi >= 0 ? "text-lemon" : "text-coral"
                     }`}>
-                      {result.holdout.flat_roi_pct > 0 ? "+" : ""}{result.holdout.flat_roi_pct.toFixed(2)}%
+                      {holdoutRoi > 0 ? "+" : ""}{holdoutRoi.toFixed(2)}%
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-text-muted block">95% Bootstrap CI</span>
                     <span className="font-mono text-xs text-text-primary tabular-nums block mt-1">
-                      [{result.holdout.roi_ci[1]}%, {result.holdout.roi_ci[2]}%]
+                      [{holdoutCi[1]}%, {holdoutCi[2]}%]
                     </span>
                   </div>
                   <div>
                     <span className="text-[10px] text-text-muted block">Holdout Bets</span>
                     <span className="font-mono font-bold text-text-primary text-sm tabular-nums block mt-1">
-                      {result.holdout.total_bets}
+                      {holdout.total_bets ?? 0}
                     </span>
                   </div>
                 </div>
@@ -277,30 +287,30 @@ export function StrategyTesterTab() {
                   <tbody className="divide-y divide-border-dark/60">
                     <tr>
                       <td className="py-2.5 px-3 text-text-muted">Total Matches Evaluated</td>
-                      <td className="py-2.5 px-3">{result.design.total_bets}</td>
-                      <td className="py-2.5 px-3 font-semibold">{result.holdout.total_bets}</td>
+                      <td className="py-2.5 px-3">{design.total_bets ?? 0}</td>
+                      <td className="py-2.5 px-3 font-semibold">{holdout.total_bets ?? 0}</td>
                     </tr>
                     <tr>
                       <td className="py-2.5 px-3 text-text-muted">Hit Rate %</td>
-                      <td className="py-2.5 px-3">{result.design.hit_rate_pct.toFixed(1)}%</td>
-                      <td className="py-2.5 px-3 font-semibold">{result.holdout.hit_rate_pct.toFixed(1)}%</td>
+                      <td className="py-2.5 px-3">{(design.hit_rate_pct ?? 0).toFixed(1)}%</td>
+                      <td className="py-2.5 px-3 font-semibold">{(holdout.hit_rate_pct ?? 0).toFixed(1)}%</td>
                     </tr>
                     <tr>
                       <td className="py-2.5 px-3 text-text-muted">Flat Stake ROI</td>
-                      <td className={`py-2.5 px-3 ${result.design.flat_roi_pct >= 0 ? "text-lemon" : "text-coral"}`}>
-                        {result.design.flat_roi_pct > 0 ? "+" : ""}{result.design.flat_roi_pct.toFixed(2)}%
+                      <td className={`py-2.5 px-3 ${designRoi >= 0 ? "text-lemon" : "text-coral"}`}>
+                        {designRoi > 0 ? "+" : ""}{designRoi.toFixed(2)}%
                       </td>
-                      <td className={`py-2.5 px-3 font-bold ${result.holdout.flat_roi_pct >= 0 ? "text-lemon" : "text-coral"}`}>
-                        {result.holdout.flat_roi_pct > 0 ? "+" : ""}{result.holdout.flat_roi_pct.toFixed(2)}%
+                      <td className={`py-2.5 px-3 font-bold ${holdoutRoi >= 0 ? "text-lemon" : "text-coral"}`}>
+                        {holdoutRoi > 0 ? "+" : ""}{holdoutRoi.toFixed(2)}%
                       </td>
                     </tr>
                     <tr>
                       <td className="py-2.5 px-3 text-text-muted">95% Bootstrap CI</td>
                       <td className="py-2.5 px-3 text-text-muted">
-                        [{result.design.roi_ci[1]}%, {result.design.roi_ci[2]}%]
+                        [{designCi[1]}%, {designCi[2]}%]
                       </td>
                       <td className="py-2.5 px-3 font-semibold">
-                        [{result.holdout.roi_ci[1]}%, {result.holdout.roi_ci[2]}%]
+                        [{holdoutCi[1]}%, {holdoutCi[2]}%]
                       </td>
                     </tr>
                   </tbody>
@@ -312,10 +322,11 @@ export function StrategyTesterTab() {
                 <span className="font-semibold text-text-primary block font-mono text-[11px] uppercase">
                   Statistical Finding:
                 </span>
-                <p>{result.verdict_explanation}</p>
+                <p>{verdictProse}</p>
               </div>
             </div>
-          ) : (
+            );
+          })() : (
             <div className="bg-bg-900 border border-border-dark rounded-xl p-12 text-center text-text-muted space-y-2">
               <FlaskConical className="w-8 h-8 mx-auto text-border-subdued" />
               <p className="text-xs font-medium text-text-primary">No Strategy Tested Yet</p>
@@ -367,3 +378,4 @@ export function StrategyTesterTab() {
     </div>
   );
 }
+

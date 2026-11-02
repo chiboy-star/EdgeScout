@@ -28,8 +28,8 @@ const config: Config = {
         coral: "#FF7A6B",
       },
       fontFamily: {
-        display: ["var(--font-fraunces)", "serif"],
-        sans: ["var(--font-inter)", "sans-serif"],
+        display: ["'Fraunces'", "Georgia", "serif"],
+        sans: ["'Inter Variable'", "'Inter'", "sans-serif"],
       },
       borderRadius: {
         squircle: "14px",

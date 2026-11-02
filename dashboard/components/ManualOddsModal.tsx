@@ -30,6 +30,16 @@ export function ManualOddsModal({
   const [stake, setStake] = useState<string>("1000");
   const [submitting, setSubmitting] = useState(false);
 
+  React.useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === "Escape" && open) {
+        onClose();
+      }
+    };
+    window.addEventListener("keydown", handleKeyDown);
+    return () => window.removeEventListener("keydown", handleKeyDown);
+  }, [open, onClose]);
+
   if (!open) return null;
 
   const h = parseFloat(homeOdds) || 0;
@@ -210,3 +220,4 @@ export function ManualOddsModal({
     </div>
   );
 }
+

@@ -1,4 +1,6 @@
 import type { Metadata } from "next";
+import "@fontsource-variable/inter";
+import "@fontsource/fraunces";
 import { Toaster } from "sonner";
 import "./globals.css";
 
@@ -14,7 +16,7 @@ export default function RootLayout({
 }) {
   return (
     <html lang="en" className="dark font-sans">
-      <body className="bg-bg-950 text-text-primary antialiased selection:bg-lemon selection:text-bg-950">
+      <body className="bg-bg-950 text-text-primary antialiased selection:bg-lemon selection:text-bg-950 font-sans">
         {children}
         <Toaster
           position="bottom-right"

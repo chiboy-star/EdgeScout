@@ -35,6 +35,10 @@ export interface ShortlistCandidate {
     roi_ci: [number, number, number];
     hit_rate_pct: number;
   };
+  odds_fetched_at?: string;
+  odds_fetched_time_label?: string;
+  is_stale?: boolean;
+  odds_age_hours?: number;
   pick_label: string;
   is_demo?: boolean;
 }
@@ -230,3 +234,4 @@ export const api = {
     return res.json();
   },
 };
+

@@ -12,6 +12,7 @@ data/cache/
 *.db
 *.sqlite3
 reports/*.png
+reports/*.log
 .env
 .env.local
 node_modules/

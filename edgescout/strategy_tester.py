@@ -104,7 +104,9 @@ def _evaluate_subset(df_subset: pd.DataFrame, flat_stake: float) -> Dict[str, An
         'total_returned': round(total_returned, 2),
         'net_profit_loss': round(net_pl, 2),
         'realized_roi_pct': round(roi_pct, 2),
+        'flat_roi_pct': round(roi_pct, 2),
         'roi_95_ci': (round(roi_pt, 2), round(roi_lo, 2), round(roi_hi, 2)),
+        'roi_ci': (round(roi_pt, 2), round(roi_lo, 2), round(roi_hi, 2)),
         'hit_rate_pct': round(hit_rate_pct, 2),
         'margin_baseline_loss_pct': round(expected_margin_loss_pct, 2),
         'difference_vs_margin_pct': round(roi_pct - expected_margin_loss_pct, 2)
@@ -258,6 +260,17 @@ def run_strategy_test(
             f"95% CI [{h_ci_lo}%, {h_ci_hi}%]) is fully explained by normal variance around bookmaker vig ({h_baseline}%)."
         )
 
+    if holdout_stats['total_bets'] == 0:
+        verdict_badge = "NO DATA"
+    elif h_ci_lo > 0:
+        verdict_badge = "STATISTICALLY POSITIVE"
+    elif h_ci_lo > h_baseline:
+        verdict_badge = "EXCEEDS MARGIN"
+    elif h_ci_hi < h_baseline:
+        verdict_badge = "NEGATIVE ROI"
+    else:
+        verdict_badge = "NO EDGE OVER MARGIN"
+
     # Persist trial in database
     if log_trial:
         cursor = conn.cursor()
@@ -314,6 +327,8 @@ def run_strategy_test(
         'design': design_stats,
         'overall': overall_stats,
         'verdict': verdict,
+        'verdict_badge': verdict_badge,
+        'verdict_explanation': verdict,
         'total_trials_run': total_trials,
         'multiple_testing_warning': multiple_testing_warning,
         'expected_false_positives': expected_false_positives,

@@ -5,9 +5,11 @@ Stores model parameters, free-tier rate limits, staking rules, and league mappin
 from pathlib import Path
 from pydantic import BaseModel, Field
 from typing import Dict, List, Tuple
+from dotenv import load_dotenv
 
 # Base Directories
 BASE_DIR = Path(__file__).resolve().parent.parent
+load_dotenv(BASE_DIR / ".env")
 DATA_DIR = BASE_DIR / "data"
 RAW_DATA_DIR = DATA_DIR / "raw"
 CACHE_DIR = DATA_DIR / "cache"

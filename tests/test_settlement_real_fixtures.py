@@ -128,3 +128,4 @@ def test_manual_settle_override_with_clv(temp_ledger):
 
     # Bankroll credited with payout 4,400 -> 98,000 + 4,400 = 102,400
     assert temp_ledger.get_bankroll()['current_bankroll'] == 102400.0
+

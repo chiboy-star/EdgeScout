@@ -161,6 +161,7 @@ class PaperLedger:
             if existing:
                 return {
                     'status': 'ALREADY_EXISTS',
+                    'bet_id': existing['id'],
                     'bet': dict(existing),
                     'message': 'Idempotent request: bet already placed.'
                 }

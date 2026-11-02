@@ -252,3 +252,4 @@ class FootballDataOrgClient:
                 'is_demo': True
             }
         }
+

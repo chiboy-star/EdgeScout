@@ -61,3 +61,4 @@ def test_accumulator_independent_legs_no_warning():
 
     assert res['has_correlated_legs'] is False
     assert res['correlation_warning'] is None
+

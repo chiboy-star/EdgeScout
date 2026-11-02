@@ -128,7 +128,7 @@ export default function DashboardPage() {
         current_bankroll: Math.max(0, ledger.current_bankroll - stakeAmount),
         open_bets: ledger.open_bets + 1,
         total_bets: ledger.total_bets + 1,
-        bets: [tempBet, ...ledger.bets],
+        bets: [tempBet, ...(ledger.bets || [])],
       });
     }
 
@@ -266,9 +266,9 @@ export default function DashboardPage() {
   };
 
   // Exposure calculation
-  const openStake = ledger?.bets
+  const openStake = (ledger?.bets || [])
     .filter(b => b.status === "OPEN")
-    .reduce((sum, b) => sum + b.stake, 0) || 0;
+    .reduce((sum, b) => sum + b.stake, 0);
   const currentBankroll = ledger?.current_bankroll || 100000;
   const dailyExposurePct = currentBankroll > 0 ? (openStake / currentBankroll) * 100 : 0;
 
@@ -358,3 +358,4 @@ export default function DashboardPage() {
     </div>
   );
 }
+

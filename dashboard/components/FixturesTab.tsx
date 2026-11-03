@@ -17,7 +17,7 @@ import {
 interface FixturesTabProps {
   fixtures: FixtureItem[];
   loading: boolean;
-  onOpenCustomOdds: (matchName?: string) => void;
+  onOpenCustomOdds: (prefill?: any) => void;
   onRefresh?: () => void;
 }
 
@@ -237,6 +237,11 @@ export function FixturesTab({
                       <span className="font-mono font-bold text-xs text-text-primary">
                         {f.odds.home.toFixed(2)}
                       </span>
+                      {f.odds.best_home && f.odds.best_home > f.odds.home && (
+                        <span className="text-[9px] text-lemon block font-mono" title={`Best available at ${f.odds.best_home_book}`}>
+                          Best: {f.odds.best_home.toFixed(2)}
+                        </span>
+                      )}
                       {f.shin_probs && (
                         <span className="text-[9px] text-lavender block font-mono">
                           {f.shin_probs.home_pct}%
@@ -248,6 +253,11 @@ export function FixturesTab({
                       <span className="font-mono font-bold text-xs text-text-primary">
                         {f.odds.draw.toFixed(2)}
                       </span>
+                      {f.odds.best_draw && f.odds.best_draw > f.odds.draw && (
+                        <span className="text-[9px] text-lemon block font-mono" title={`Best available at ${f.odds.best_draw_book}`}>
+                          Best: {f.odds.best_draw.toFixed(2)}
+                        </span>
+                      )}
                       {f.shin_probs && (
                         <span className="text-[9px] text-lavender block font-mono">
                           {f.shin_probs.draw_pct}%
@@ -259,6 +269,11 @@ export function FixturesTab({
                       <span className="font-mono font-bold text-xs text-text-primary">
                         {f.odds.away.toFixed(2)}
                       </span>
+                      {f.odds.best_away && f.odds.best_away > f.odds.away && (
+                        <span className="text-[9px] text-lemon block font-mono" title={`Best available at ${f.odds.best_away_book}`}>
+                          Best: {f.odds.best_away.toFixed(2)}
+                        </span>
+                      )}
                       {f.shin_probs && (
                         <span className="text-[9px] text-lavender block font-mono">
                           {f.shin_probs.away_pct}%
@@ -270,7 +285,7 @@ export function FixturesTab({
                   {/* Market Vig and Expected Cost */}
                   <div className="flex items-center justify-between text-[11px] pt-1">
                     <div className="flex items-center gap-1.5">
-                      <span className="text-[10px] text-text-muted">Margin:</span>
+                      <span className="text-[10px] text-text-muted">Consensus Margin:</span>
                       <span className="font-mono font-semibold text-text-primary text-[11px]">
                         {f.margin_pct.toFixed(2)}%
                       </span>
@@ -289,7 +304,10 @@ export function FixturesTab({
                     No SportyBet odds loaded for this match yet.
                   </p>
                   <button
-                    onClick={() => onOpenCustomOdds(f.match_name)}
+                    onClick={() => onOpenCustomOdds({
+                      match_name: f.match_name,
+                      kickoff_utc: f.kickoff_utc
+                    })}
                     className="px-2.5 py-1 bg-lavender/10 hover:bg-lavender/20 text-lavender border border-lavender/30 rounded text-[11px] font-medium transition-colors inline-flex items-center gap-1 cursor-pointer"
                   >
                     <SlidersHorizontal className="w-3 h-3" />

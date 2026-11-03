@@ -7,31 +7,50 @@ import {
   ShortlistResponse, 
   ShortlistCandidate, 
   LedgerSummary, 
-  FixtureItem 
+  FixtureItem,
+  DataHealthStats 
 } from "../lib/api";
 import { Navbar } from "../components/Navbar";
+import { DataHealthStrip } from "../components/DataHealthStrip";
 import { CommandMenu } from "../components/CommandMenu";
 import { ShortlistTab } from "../components/ShortlistTab";
 import { FixturesTab } from "../components/FixturesTab";
 import { LedgerTab } from "../components/LedgerTab";
 import { AccumulatorTab } from "../components/AccumulatorTab";
 import { StrategyTesterTab } from "../components/StrategyTesterTab";
-import { ManualOddsModal } from "../components/ManualOddsModal";
+import { ManualOddsModal, ManualOddsPrefill } from "../components/ManualOddsModal";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<string>("shortlist");
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [customOddsOpen, setCustomOddsOpen] = useState(false);
-  const [customOddsMatch, setCustomOddsMatch] = useState<string>("Arsenal vs Chelsea");
+  const [customOddsPrefill, setCustomOddsPrefill] = useState<ManualOddsPrefill | null>(null);
 
   const [shortlist, setShortlist] = useState<ShortlistResponse | null>(null);
   const [fixtures, setFixtures] = useState<FixtureItem[]>([]);
   const [ledger, setLedger] = useState<LedgerSummary | null>(null);
+  const [dataHealth, setDataHealth] = useState<DataHealthStats | null>(null);
 
   const [loadingShortlist, setLoadingShortlist] = useState(false);
   const [loadingFixtures, setLoadingFixtures] = useState(false);
   const [loadingLedger, setLoadingLedger] = useState(false);
+  const [loadingHealth, setLoadingHealth] = useState(false);
   const [lastUpdated, setLastUpdated] = useState<Date>(new Date());
+
+  // Load Data Health Strip
+  const loadDataHealth = useCallback(async () => {
+    setLoadingHealth(true);
+    try {
+      const stats = await api.getDataHealth();
+      setDataHealth(stats);
+      return stats;
+    } catch (e) {
+      console.error("Failed to load data health stats:", e);
+      return null;
+    } finally {
+      setLoadingHealth(false);
+    }
+  }, []);
 
   // Load Shortlist
   const loadShortlist = useCallback(async (currentBankroll?: number) => {
@@ -39,6 +58,9 @@ export default function DashboardPage() {
     try {
       const data = await api.getShortlist(currentBankroll);
       setShortlist(data);
+      if (data.data_health) {
+        setDataHealth(data.data_health);
+      }
     } catch (e) {
       console.error("Failed to load shortlist:", e);
     } finally {
@@ -77,20 +99,37 @@ export default function DashboardPage() {
   // Initial load
   useEffect(() => {
     const init = async () => {
+      await loadDataHealth();
       const leg = await loadLedger();
       await loadShortlist(leg?.current_bankroll);
       await loadFixtures();
       setLastUpdated(new Date());
     };
     init();
-  }, [loadLedger, loadShortlist, loadFixtures]);
+  }, [loadDataHealth, loadLedger, loadShortlist, loadFixtures]);
 
   const handleRefresh = async () => {
+    await loadDataHealth();
     const leg = await loadLedger();
     await loadShortlist(leg?.current_bankroll);
     await loadFixtures();
     setLastUpdated(new Date());
     toast.info("Market data refreshed");
+  };
+
+  // Re-download fixtures.csv
+  const handleRefreshFixtures = async () => {
+    try {
+      const freshStats = await api.refreshFixtures();
+      setDataHealth(freshStats);
+      await loadFixtures();
+      if (ledger) {
+        await loadShortlist(ledger.current_bankroll);
+      }
+      toast.success("Fixtures feed re-downloaded & cache refreshed");
+    } catch (err: any) {
+      toast.error("Failed to re-download fixtures: " + (err.message || "Network error"));
+    }
   };
 
   // Place bet with optimistic update & 6s undo toast
@@ -140,6 +179,7 @@ export default function DashboardPage() {
         selection: candidate.selection,
         odds: candidate.odds_taken,
         stake: stakeAmount,
+        kickoff_utc: candidate.kickoff_utc,
       });
 
       const placedBetId = res.bet_id || idempotencyKey;
@@ -175,6 +215,7 @@ export default function DashboardPage() {
     selection: string;
     odds: number;
     stake: number;
+    kickoff_utc?: string;
   }) => {
     const idempotencyKey = typeof crypto !== "undefined" && crypto.randomUUID 
       ? crypto.randomUUID() 
@@ -189,6 +230,7 @@ export default function DashboardPage() {
         selection: data.selection,
         odds: data.odds,
         stake: data.stake,
+        kickoff_utc: data.kickoff_utc,
       });
 
       const placedBetId = res.bet_id || idempotencyKey;
@@ -259,8 +301,14 @@ export default function DashboardPage() {
     }
   };
 
-  const openCustomOddsModal = (matchName?: string) => {
-    if (matchName) setCustomOddsMatch(matchName);
+  const openCustomOddsModal = (prefillData?: any) => {
+    if (typeof prefillData === "string") {
+      setCustomOddsPrefill({ match_name: prefillData });
+    } else if (prefillData && typeof prefillData === "object") {
+      setCustomOddsPrefill(prefillData);
+    } else {
+      setCustomOddsPrefill({ match_name: "Arsenal vs Chelsea" });
+    }
     setCustomOddsOpen(true);
   };
 
@@ -285,6 +333,13 @@ export default function DashboardPage() {
         onOpenCmdk={() => setCmdkOpen(true)}
       />
 
+      {/* Data Health Strip (DB Latest Date, Fixtures Freshness, Next Kickoff in WAT, Upcoming Count) */}
+      <DataHealthStrip
+        stats={dataHealth}
+        loading={loadingHealth}
+        onRefreshFixtures={handleRefreshFixtures}
+      />
+
       {/* Main Content Area */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
         {activeTab === "shortlist" && (
@@ -301,6 +356,7 @@ export default function DashboardPage() {
             fixtures={fixtures}
             loading={loadingFixtures}
             onOpenCustomOdds={openCustomOddsModal}
+            onRefresh={handleRefresh}
           />
         )}
 
@@ -330,14 +386,14 @@ export default function DashboardPage() {
         setActiveTab={setActiveTab}
         onAutoSettle={handleAutoSettle}
         onResetBankroll={handleResetBankroll}
-        onOpenCustomOdds={() => setCustomOddsOpen(true)}
+        onOpenCustomOdds={() => openCustomOddsModal()}
       />
 
       {/* Manual Odds Entry Modal */}
       <ManualOddsModal
         open={customOddsOpen}
         onClose={() => setCustomOddsOpen(false)}
-        defaultMatchName={customOddsMatch}
+        prefill={customOddsPrefill}
         onPlaceBet={handlePlaceCustomBet}
       />
 
@@ -353,4 +409,3 @@ export default function DashboardPage() {
     </div>
   );
 }
-

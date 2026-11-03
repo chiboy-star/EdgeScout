@@ -3,16 +3,27 @@
 import React, { useState } from "react";
 import { X, Calculator, PlusCircle, AlertCircle } from "lucide-react";
 
+export interface ManualOddsPrefill {
+  match_name: string;
+  selection?: string;
+  home_odds?: number;
+  draw_odds?: number;
+  away_odds?: number;
+  kickoff_utc?: string;
+}
+
 interface ManualOddsModalProps {
   open: boolean;
   onClose: () => void;
   defaultMatchName?: string;
+  prefill?: ManualOddsPrefill | null;
   onPlaceBet: (betData: {
     match_id: string;
     match_name: string;
     selection: string;
     odds: number;
     stake: number;
+    kickoff_utc?: string;
   }) => Promise<void>;
 }
 
@@ -20,6 +31,7 @@ export function ManualOddsModal({
   open,
   onClose,
   defaultMatchName = "Custom Fixture",
+  prefill,
   onPlaceBet,
 }: ManualOddsModalProps) {
   const [matchName, setMatchName] = useState(defaultMatchName);
@@ -29,6 +41,18 @@ export function ManualOddsModal({
   const [selection, setSelection] = useState<string>("H");
   const [stake, setStake] = useState<string>("1000");
   const [submitting, setSubmitting] = useState(false);
+
+  React.useEffect(() => {
+    if (prefill) {
+      if (prefill.match_name) setMatchName(prefill.match_name);
+      if (prefill.home_odds) setHomeOdds(prefill.home_odds.toFixed(2));
+      if (prefill.draw_odds) setDrawOdds(prefill.draw_odds.toFixed(2));
+      if (prefill.away_odds) setAwayOdds(prefill.away_odds.toFixed(2));
+      if (prefill.selection) setSelection(prefill.selection);
+    } else if (defaultMatchName) {
+      setMatchName(defaultMatchName);
+    }
+  }, [open, prefill, defaultMatchName]);
 
   React.useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -74,6 +98,7 @@ export function ManualOddsModal({
         selection,
         odds: selOdd,
         stake: parseFloat(stake) || 1000,
+        kickoff_utc: prefill?.kickoff_utc,
       });
       onClose();
     } finally {

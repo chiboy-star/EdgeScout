@@ -28,6 +28,7 @@ from edgescout.shortlist import generate_suggestion_shortlist
 from edgescout.data.football_data_org import FootballDataOrgClient
 from edgescout.accumulator import calculate_accumulator
 from edgescout.strategy_tester import StrategyRule, run_strategy_test
+from edgescout.data.fixtures_feed import get_data_health_stats, fetch_and_cache_fixtures
 
 app = FastAPI(
     title="EdgeScout API",
@@ -59,6 +60,7 @@ class PlaceBetRequest(BaseModel):
     odds: float = Field(..., gt=1.0, description="Decimal odds taken")
     stake: Optional[float] = Field(None, gt=0, description="Optional custom stake")
     user_prob: Optional[float] = Field(None, gt=0, lt=1, description="Optional user probability for Kelly")
+    kickoff_utc: Optional[str] = Field(None, description="ISO format kickoff timestamp in UTC")
 
 
 class UndoBetRequest(BaseModel):
@@ -136,12 +138,29 @@ def get_bets():
     return ledger.get_ledger_summary()
 
 
+@app.get("/api/health/data")
+def get_data_health():
+    """Returns database and fixtures health metadata for top status strip."""
+    return get_data_health_stats(DEFAULT_DB_PATH)
+
+
+@app.post("/api/fixtures/refresh")
+def refresh_fixtures():
+    """Forces fresh re-download of fixtures.csv from football-data.co.uk and updates cache."""
+    fetch_and_cache_fixtures()
+    return get_data_health_stats(DEFAULT_DB_PATH)
+
+
 @app.post("/api/bets/place")
 def place_bet(req: PlaceBetRequest):
     """
     Places disciplined paper bet with idempotency check,
     1% flat default stake, 2% max bet cap, and 6% daily exposure cap.
     """
+    stake = req.stake
+    if stake is None:
+        stake = ledger.suggest_stake(odds=req.odds, user_prob=req.user_prob)["suggested_stake"]
+
     res = ledger.place_bet(
         idempotency_key=req.idempotency_key,
         match_id=req.match_id,
@@ -149,8 +168,9 @@ def place_bet(req: PlaceBetRequest):
         league_code=req.league_code,
         selection=req.selection,
         odds=req.odds,
-        stake=req.stake,
-        user_prob=req.user_prob
+        stake=stake,
+        user_prob=req.user_prob,
+        kickoff_utc=req.kickoff_utc
     )
     if res.get("status") == "ERROR":
         raise HTTPException(status_code=400, detail=res.get("message", "Error placing bet"))

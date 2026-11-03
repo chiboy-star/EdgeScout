@@ -15,7 +15,7 @@ import json
 import uuid
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 
 from edgescout.config import DEFAULT_DB_PATH
 from edgescout.models.kelly import calculate_stake, kelly_fraction
@@ -140,35 +140,96 @@ class PaperLedger:
         odds: float,
         stake: float,
         stake_fraction: Optional[float] = None,
-        user_prob: Optional[float] = None
+        user_prob: Optional[float] = None,
+        kickoff_utc: Optional[str] = None
     ) -> Dict[str, Any]:
         """
-        Places a paper bet with idempotency check.
-        If idempotency_key already exists, returns existing bet without duplicating.
+        Places a paper bet with strict discipline checks:
+        1. Date integrity: rejects matches already kicked off or starting within 10 mins.
+        2. Stake validation: positive rounded stake <= available bankroll.
+        3. Single bet cap: max 2.0% of bankroll.
+        4. Daily exposure cap: max 6.0% cumulative open exposure.
+        5. Idempotency check: duplicate keys return ALREADY_EXISTS without double-counting.
         """
-        bet_id = str(uuid.uuid4())
+        now_utc = datetime.now(timezone.utc)
+
+        # 1. Date Integrity Check
+        if kickoff_utc:
+            try:
+                clean_k = kickoff_utc.replace("Z", "+00:00")
+                k_dt = datetime.fromisoformat(clean_k)
+                if k_dt.tzinfo is None:
+                    k_dt = k_dt.replace(tzinfo=timezone.utc)
+                if k_dt < now_utc + timedelta(minutes=10):
+                    return {
+                        'status': 'ERROR',
+                        'code': 'MATCH_ALREADY_STARTED',
+                        'message': f'Cannot place bet: match "{match_name}" has already started or kicks off in less than 10 minutes.'
+                    }
+            except Exception:
+                pass
+
+        # 2. Stake Validation & Rounding
+        if stake is None or float(stake) <= 0:
+            return {
+                'status': 'ERROR',
+                'code': 'INVALID_STAKE',
+                'message': 'Stake must be a positive amount greater than ₦0.00.'
+            }
+        stake = round(float(stake), 2)
+
         bk = self.get_bankroll()['current_bankroll']
 
+        # 3. Insufficient Bankroll
+        if stake > bk:
+            return {
+                'status': 'ERROR',
+                'code': 'INSUFFICIENT_BANKROLL',
+                'message': f'Insufficient bankroll. Requested stake ₦{stake:,.2f} exceeds available bankroll ₦{bk:,.2f}.'
+            }
+
+        # 4. Single Bet Cap (2.0%)
         if stake_fraction is None:
             stake_fraction = stake / bk if bk > 0 else 0.01
+
+        if stake_fraction > 0.0205:
+            max_stake = round(bk * 0.02, 2)
+            return {
+                'status': 'ERROR',
+                'code': 'STAKE_CAP_EXCEEDED',
+                'message': f'Stake exceeds 2.0% single bet cap (max allowed: ₦{max_stake:,.2f}).'
+            }
+
+        # 5. Daily Exposure Cap (6.0%)
+        open_exposure = self.get_daily_exposure_fraction()
+        if open_exposure + stake_fraction > 0.0605:
+            rem_daily = max(0.0, 0.06 - open_exposure)
+            max_stake_rem = round(rem_daily * bk, 2)
+            return {
+                'status': 'ERROR',
+                'code': 'DAILY_CAP_REACHED',
+                'message': f'Daily exposure cap reached (6.0%). Current open exposure: {open_exposure*100:.1f}%. Adding this bet would exceed daily limit (max remaining: ₦{max_stake_rem:,.2f}).'
+            }
 
         with sqlite3.connect(self.db_path) as conn:
             conn.row_factory = sqlite3.Row
             cursor = conn.cursor()
 
-            # Check idempotency
+            # 6. Idempotency Check
             cursor.execute("SELECT * FROM paper_bets WHERE idempotency_key = ?;", (idempotency_key,))
             existing = cursor.fetchone()
             if existing:
                 return {
                     'status': 'ALREADY_EXISTS',
+                    'code': 'DUPLICATE_KEY',
                     'bet_id': existing['id'],
                     'bet': dict(existing),
-                    'message': 'Idempotent request: bet already placed.'
+                    'message': f'Duplicate request: bet on {existing["match_name"]} has already been recorded in your ledger.'
                 }
 
             # Enforce bankroll subtraction
-            new_bankroll = bk - stake
+            new_bankroll = round(bk - stake, 2)
+            bet_id = str(uuid.uuid4())
             cursor.execute("UPDATE paper_bankroll SET current_bankroll = ? WHERE id = 1;", (new_bankroll,))
 
             cursor.execute("""

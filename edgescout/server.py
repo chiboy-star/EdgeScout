@@ -28,7 +28,12 @@ from edgescout.shortlist import generate_suggestion_shortlist
 from edgescout.data.football_data_org import FootballDataOrgClient
 from edgescout.accumulator import calculate_accumulator
 from edgescout.strategy_tester import StrategyRule, run_strategy_test
-from edgescout.data.fixtures_feed import get_data_health_stats, fetch_and_cache_fixtures
+from edgescout.data.fixtures_feed import (
+    get_data_health_stats,
+    fetch_football_data_co_uk_csv,
+    add_custom_fixture,
+    get_custom_fixtures
+)
 
 app = FastAPI(
     title="EdgeScout API",
@@ -51,6 +56,17 @@ ledger = PaperLedger(str(DEFAULT_DB_PATH))
 # -------------------------------------------------------------------------
 # Request Models
 # -------------------------------------------------------------------------
+class AddCustomFixtureRequest(BaseModel):
+    match_name: str = Field(..., description="e.g. Arsenal vs Chelsea")
+    home_team: Optional[str] = None
+    away_team: Optional[str] = None
+    league: str = Field("Custom League", description="e.g. Premier League or UEFA Champions League")
+    kickoff_utc: str = Field(..., description="ISO format UTC kickoff timestamp")
+    home_odds: float = Field(..., gt=1.0)
+    draw_odds: float = Field(..., gt=1.0)
+    away_odds: float = Field(..., gt=1.0)
+
+
 class PlaceBetRequest(BaseModel):
     idempotency_key: str = Field(..., description="Unique client key to prevent double submits")
     match_id: str = Field(..., description="Stable match ID")
@@ -115,27 +131,51 @@ def health_check():
 
 
 @app.get("/api/shortlist")
-def get_shortlist(bankroll: Optional[float] = Query(None, description="Current bankroll for stake suggestions")):
+def get_shortlist(
+    bankroll: Optional[float] = Query(None, description="Current bankroll for stake suggestions"),
+    timeframe: str = Query("today", description="'today' (<24h) or 'week' (next 7 days)")
+):
     """
     Returns shortlist ranked by LOWEST expected cost in 3 tiers:
     Steady (prob >= 55%), Balanced (35-55%), Long shot (< 20%, capped at 0.25% stake).
-    Max 3 per tier.
+    Enforces Phase 4.4 Rules:
+    - Max 1 selection per match across entire shortlist.
+    - If timeframe == 'today', strictly restricts to kickoff <= now + 24h.
     """
     if bankroll is None:
         bankroll = ledger.get_bankroll()["current_bankroll"]
-    return generate_suggestion_shortlist(str(DEFAULT_DB_PATH), bankroll=bankroll)
+    return generate_suggestion_shortlist(str(DEFAULT_DB_PATH), bankroll=bankroll, timeframe=timeframe)
 
 
 @app.get("/api/fixtures")
-def get_fixtures():
+def get_fixtures(force_refresh: bool = Query(False)):
     """Returns today and upcoming market fixtures with margin and cost metrics."""
-    return {"fixtures": get_market_fixtures()}
+    return {"fixtures": get_market_fixtures(force_refresh=force_refresh)}
 
 
 @app.get("/api/bets")
 def get_bets():
     """Returns complete paper ledger, bankroll, equity curve, and performance stats."""
     return ledger.get_ledger_summary()
+
+
+@app.post("/api/fixtures/custom")
+def create_custom_fixture(req: AddCustomFixtureRequest):
+    """Adds a user-entered fixture and odds into SQLite custom_fixtures."""
+    h_team = req.home_team or (req.match_name.split(" vs ")[0] if " vs " in req.match_name else req.match_name)
+    a_team = req.away_team or (req.match_name.split(" vs ")[1] if " vs " in req.match_name else "Opponent")
+    res = add_custom_fixture(
+        match_name=req.match_name,
+        home_team=h_team,
+        away_team=a_team,
+        league=req.league,
+        kickoff_utc=req.kickoff_utc,
+        home_odds=req.home_odds,
+        draw_odds=req.draw_odds,
+        away_odds=req.away_odds,
+        db_path=DEFAULT_DB_PATH
+    )
+    return res
 
 
 @app.get("/api/health/data")
@@ -147,7 +187,7 @@ def get_data_health():
 @app.post("/api/fixtures/refresh")
 def refresh_fixtures():
     """Forces fresh re-download of fixtures.csv from football-data.co.uk and updates cache."""
-    fetch_and_cache_fixtures()
+    fetch_football_data_co_uk_csv()
     return get_data_health_stats(DEFAULT_DB_PATH)
 
 

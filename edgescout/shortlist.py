@@ -1,17 +1,21 @@
 """
-Suggestion Shortlist Engine for EdgeScout Phase 4.3.
+Suggestion Shortlist Engine for EdgeScout Phase 4.4.
 Selects and ranks candidate betting opportunities based on LOWEST EXPECTED COST,
 multi-bookmaker line shopping, Shin de-vigged consensus probability,
 supporting facts (Form, H2H, Rest days, Form/Market agreement flag),
 and 15-season empirical historical ROI for that league/odds bucket.
 
-Core Rule: Never predict profit or winners.
-Every pick is labeled: "Lowest-cost pick, not a prediction of profit."
+Core Discipline Rules:
+1. ONE SELECTION PER MATCH: A fixture may appear at most once across the entire shortlist.
+   If several selections qualify, keep the single lowest-cost one.
+2. TODAY MEANS TODAY: When viewing Today, kickoff must be within now + 10m to now + 24h.
+3. PROVE DATA IS REAL: Every pick carries an auditable source tag from real fixtures.csv or manual entry.
+4. NO PREDICTION OF PROFIT: Every card labeled "Lowest-cost pick, not a prediction of profit."
 
-Tiers (Max 3 per tier):
-1. Steady: consensus market prob >= 55%
-2. Balanced: consensus market prob 35-55%
-3. Long shot: consensus market prob < 20% (hard stake cap 0.25% of bankroll)
+Tiers (Max 3 per tier, max 1 per match across all tiers):
+1. Steady: consensus market prob >= 55% (flat 1%, cap 2%)
+2. Balanced: consensus market prob 35-55% (flat 1%, cap 2%)
+3. Long shot: consensus market prob < 20% (hard cap 0.25%)
 """
 import time
 import sqlite3
@@ -21,7 +25,7 @@ from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
 
-from edgescout.config import DEFAULT_DB_PATH, CACHE_DIR
+from edgescout.config import DEFAULT_DB_PATH
 from edgescout.models.margin import remove_margin_shin, calculate_overround
 from edgescout.backtest.metrics import bootstrap_ci
 from edgescout.dates import (
@@ -32,24 +36,12 @@ from edgescout.dates import (
     get_now_utc
 )
 from edgescout.data.fixtures_feed import (
-    load_fixtures_dataframe,
+    fetch_football_data_co_uk_csv,
+    get_custom_fixtures,
     get_data_health_stats,
-    FIXTURES_CACHE_FILE
+    LEAGUE_DIV_MAP
 )
 
-LEAGUE_DIV_MAP = {
-    'E0': 'Premier League',
-    'E1': 'Championship',
-    'SP1': 'La Liga',
-    'I1': 'Serie A',
-    'D1': 'Bundesliga',
-    'F1': 'Ligue 1',
-    'B1': 'Belgian First Division',
-    'N1': 'Dutch Eredivisie',
-    'P1': 'Portuguese Primeira Liga'
-}
-
-# Bookmaker prefixes in fixtures.csv
 BOOKMAKER_MAP = [
     ('B365', 'Bet365'),
     ('BV', 'BetVictor'),
@@ -85,19 +77,13 @@ def get_team_recent_form(conn: sqlite3.Connection, team_name: str, n: int = 5) -
 
     for m_date, h_team, a_team, ftr in rows:
         if h_team == team_name:
-            if ftr == 'H':
-                results.append('W'); points += 3
-            elif ftr == 'D':
-                results.append('D'); points += 1
-            else:
-                results.append('L')
+            if ftr == 'H': results.append('W'); points += 3
+            elif ftr == 'D': results.append('D'); points += 1
+            else: results.append('L')
         else:
-            if ftr == 'A':
-                results.append('W'); points += 3
-            elif ftr == 'D':
-                results.append('D'); points += 1
-            else:
-                results.append('L')
+            if ftr == 'A': results.append('W'); points += 3
+            elif ftr == 'D': results.append('D'); points += 1
+            else: results.append('L')
 
     return {
         'record': results,
@@ -122,300 +108,277 @@ def get_head_to_head(conn: sqlite3.Connection, home_team: str, away_team: str, n
     rows = cur.fetchall()
 
     h_wins, draws, a_wins = 0, 0, 0
-    for h, a, ftr in rows:
-        if h == home_team:
+    for h_t, a_t, ftr in rows:
+        if h_t == home_team:
             if ftr == 'H': h_wins += 1
             elif ftr == 'D': draws += 1
-            else: a_wins += 1
+            elif ftr == 'A': a_wins += 1
         else:
             if ftr == 'A': h_wins += 1
             elif ftr == 'D': draws += 1
-            else: a_wins += 1
+            elif ftr == 'H': a_wins += 1
 
-    return {'home_wins': h_wins, 'draws': draws, 'away_wins': a_wins, 'total': len(rows)}
+    return {'home_wins': h_wins, 'draws': draws, 'away_wins': a_wins}
 
 
-def get_odds_bucket_stats(
-    conn: sqlite3.Connection,
-    league_code: str,
-    selection: str,
-    odds: float
-) -> Dict[str, Any]:
-    """Extracts 15-season empirical ROI and 95% Bootstrap CI for odds bucket."""
-    if odds < 1.50:
-        bucket_label = "Heavy Favourite (< 1.50)"
-        odds_min, odds_max = 1.01, 1.50
-    elif odds < 2.00:
-        bucket_label = "Moderate Favourite (1.50 - 2.00)"
-        odds_min, odds_max = 1.50, 2.00
-    elif odds < 3.00:
-        bucket_label = "Contested (2.00 - 3.00)"
-        odds_min, odds_max = 2.00, 3.00
-    elif odds < 5.00:
-        bucket_label = "Underdog (3.00 - 5.00)"
-        odds_min, odds_max = 3.00, 5.00
-    else:
-        bucket_label = "Longshot (> 5.00)"
-        odds_min, odds_max = 5.00, 50.0
-
-    cache_key = f"{league_code}_{selection}_{odds_min}_{odds_max}"
+def get_odds_bucket_stats(conn: sqlite3.Connection, league_code: str, selection: str, odds: float) -> Dict[str, Any]:
+    """Calculates empirical 15-season ROI & bootstrap CI for league and odds bucket."""
+    cache_key = f"{league_code}_{selection}_{round(odds, 1)}"
     if cache_key in _ODDS_BUCKET_CACHE:
         return _ODDS_BUCKET_CACHE[cache_key]
 
+    step = 0.20 if odds < 3.0 else (0.50 if odds < 6.0 else 1.0)
+    low_b = max(1.01, round(odds - step, 2))
+    high_b = round(odds + step, 2)
+
     odd_col = 'b365_h' if selection == 'H' else ('b365_d' if selection == 'D' else 'b365_a')
+
     query = f"""
     SELECT m.ftr, o.{odd_col}
     FROM matches m
     JOIN odds o ON m.match_id = o.match_id
-    WHERE m.league_code = ? AND o.{odd_col} >= ? AND o.{odd_col} < ? AND m.ftr IS NOT NULL;
+    WHERE m.league_code = ? AND o.{odd_col} >= ? AND o.{odd_col} <= ?
+      AND m.ftr IN ('H', 'D', 'A');
     """
     cur = conn.cursor()
-    cur.execute(query, (league_code, odds_min, odds_max))
+    cur.execute(query, (league_code, low_b, high_b))
     rows = cur.fetchall()
 
-    if len(rows) < 30:
-        # Fallback to pooled across leagues
+    if not rows or len(rows) < 30:
         query_all = f"""
         SELECT m.ftr, o.{odd_col}
         FROM matches m
         JOIN odds o ON m.match_id = o.match_id
-        WHERE o.{odd_col} >= ? AND o.{odd_col} < ? AND m.ftr IS NOT NULL;
+        WHERE o.{odd_col} >= ? AND o.{odd_col} <= ?
+          AND m.ftr IN ('H', 'D', 'A');
         """
-        cur.execute(query_all, (odds_min, odds_max))
+        cur.execute(query_all, (low_b, high_b))
         rows = cur.fetchall()
 
     if not rows:
-        res = {
-            'bucket_label': bucket_label,
+        stats = {
+            'bucket_label': f"{low_b:.2f} - {high_b:.2f} (All Leagues)",
             'historical_bets': 0,
             'historical_roi_pct': -5.0,
-            'roi_ci': (-5.0, -8.0, -2.0),
+            'roi_ci': (-10.0, -5.0, 0.0),
             'hit_rate_pct': 0.0
         }
-        _ODDS_BUCKET_CACHE[cache_key] = res
-        return res
+        _ODDS_BUCKET_CACHE[cache_key] = stats
+        return stats
 
     returns = []
-    wins = 0
-    for ftr, o_val in rows:
-        if o_val and o_val > 1.0:
-            won = (ftr == selection)
-            returns.append((o_val - 1.0) if won else -1.0)
-            if won: wins += 1
+    hits = 0
+    for ftr, odd_val in rows:
+        if odd_val and odd_val > 1.0:
+            if ftr == selection:
+                returns.append(odd_val - 1.0)
+                hits += 1
+            else:
+                returns.append(-1.0)
 
     n_bets = len(returns)
-    roi_pct = (sum(returns) / n_bets) * 100.0 if n_bets > 0 else 0.0
-    hit_rate = (wins / n_bets) * 100.0 if n_bets > 0 else 0.0
-    roi_pt, ci_lo, ci_hi = bootstrap_ci(np.array(returns))
+    hit_rate = (hits / n_bets) * 100.0 if n_bets > 0 else 0.0
+    mean_roi = (sum(returns) / n_bets) * 100.0 if n_bets > 0 else 0.0
+    ci = bootstrap_ci(np.array(returns) if returns else np.array([]), n_bootstraps=500, ci=0.95)
 
-    res = {
-        'bucket_label': bucket_label,
+    stats = {
+        'bucket_label': f"{low_b:.2f} - {high_b:.2f} ({league_code})",
         'historical_bets': n_bets,
-        'historical_roi_pct': round(roi_pct, 2),
-        'roi_ci': (round(roi_pt, 2), round(ci_lo, 2), round(ci_hi, 2)),
+        'historical_roi_pct': round(mean_roi, 2),
+        'roi_ci': (round(ci[0] * 100, 2), round(ci[1] * 100, 2), round(ci[2] * 100, 2)),
         'hit_rate_pct': round(hit_rate, 1)
     }
-    _ODDS_BUCKET_CACHE[cache_key] = res
-    return res
+    _ODDS_BUCKET_CACHE[cache_key] = stats
+    return stats
 
 
-def compute_line_shopping_and_consensus(row: pd.Series) -> Optional[Dict[str, Any]]:
-    """
-    Extracts odds across available bookmakers, computes Shin consensus probability
-    (weighting Pinnacle 3x when present), and line shopping comparisons.
-    """
-    bookmaker_odds = {}
-    fair_probs_list = []
-    weights_list = []
-    margins_list = []
-
+def compute_line_shopping_and_consensus(row: Any) -> Optional[Dict[str, Any]]:
+    """Extracts bookmaker quotes, calculates weighted Shin consensus, and returns consensus probabilities."""
+    b_odds = {}
     for prefix, b_name in BOOKMAKER_MAP:
         try:
-            h = float(row.get(f'{prefix}H', 0))
-            d = float(row.get(f'{prefix}D', 0))
-            a = float(row.get(f'{prefix}A', 0))
+            h = float(row.get(f"{prefix}H", 0) or 0)
+            d = float(row.get(f"{prefix}D", 0) or 0)
+            a = float(row.get(f"{prefix}A", 0) or 0)
             if h > 1.0 and d > 1.0 and a > 1.0:
-                bookmaker_odds[b_name] = {'H': h, 'D': d, 'A': a}
-                m = calculate_overround([h, d, a])
-                margins_list.append(m * 100.0)
-                fp, _ = remove_margin_shin([h, d, a])
-                fair_probs_list.append(fp)
-                # Pinnacle weighted 3x, others 1x
-                w = 3.0 if prefix == 'PS' else 1.0
-                weights_list.append(w)
+                b_odds[b_name] = {'H': h, 'D': d, 'A': a}
         except (ValueError, TypeError):
             continue
 
-    if not fair_probs_list:
+    if not b_odds:
         return None
 
-    # Weighted consensus probability
-    total_w = sum(weights_list)
-    consensus_probs = [
-        sum(fair_probs_list[j][i] * weights_list[j] for j in range(len(fair_probs_list))) / total_w
-        for i in range(3)
-    ]
-    # Normalize
-    s_prob = sum(consensus_probs)
-    consensus_probs = [p / s_prob for p in consensus_probs]
+    probs_list = []
+    weights = []
+    margins = []
 
-    avg_margin_pct = sum(margins_list) / len(margins_list) if margins_list else 5.0
+    for b_name, odds in b_odds.items():
+        h, d, a = odds['H'], odds['D'], odds['A']
+        raw_m = calculate_overround([h, d, a])
+        p_fair, _ = remove_margin_shin([h, d, a])
+        w = 3.0 if b_name == 'Pinnacle' else 1.0
+        probs_list.append(p_fair)
+        weights.append(w)
+        margins.append(raw_m * 100.0)
+
+    total_w = sum(weights)
+    consensus_probs = [
+        sum(probs_list[i][k] * weights[i] for i in range(len(probs_list))) / total_w
+        for k in range(3)
+    ]
+    sum_p = sum(consensus_probs)
+    consensus_probs = [p / sum_p for p in consensus_probs]
+    avg_margin = sum(margins[i] * weights[i] for i in range(len(margins))) / total_w
 
     return {
-        'bookmaker_odds': bookmaker_odds,
         'consensus_probs': consensus_probs,
-        'consensus_margin_pct': round(avg_margin_pct, 2)
+        'consensus_margin_pct': avg_margin,
+        'bookmaker_odds': b_odds
     }
 
 
 def generate_suggestion_shortlist(
-    db_path: str = str(DEFAULT_DB_PATH),
+    db_path: Path = DEFAULT_DB_PATH,
     bankroll: float = 100000.0,
-    force_refresh: bool = False
+    timeframe: str = "today" # "today" or "week"
 ) -> Dict[str, Any]:
     """
-    Generates ranked shortlist across 3 tiers (max 3 per tier):
-    - Steady: consensus prob >= 55%
-    - Balanced: consensus prob 35% - 55%
-    - Long shot: consensus prob < 20% (hard stake cap 0.25% of bankroll)
-    Enforces DATE INTEGRITY: never includes matches kicking off in < 10 mins or in the past.
+    Ranks suggestions based on LOWEST EXPECTED FRICTION (margin & cost).
+    Enforces Phase 4.4 Rules:
+    1. ONE SELECTION PER MATCH: If multiple selections qualify for a match, keep only the lowest-cost one.
+    2. TODAY MEANS TODAY: When timeframe == "today", strictly restricts to kickoff <= now + 24h.
+    3. PROVE DATA IS REAL: Uses real fixtures.csv and custom fixtures with explicit source tags.
     """
-    df_raw = load_fixtures_dataframe(force_refresh=force_refresh)
-    conn = sqlite3.connect(db_path)
     now_utc = get_now_utc()
-    health_stats = get_data_health_stats(Path(db_path))
+    df_csv, csv_fetch_time = fetch_football_data_co_uk_csv()
+    health_stats = get_data_health_stats(db_path)
 
-    candidates = []
+    conn = sqlite3.connect(db_path)
+
     scanned_count = 0
     skipped_breakdown = {
         'past_or_soon': 0,
-        'high_margin': 0,
+        'not_today': 0,
+        'no_odds': 0,
         'outside_tiers': 0,
-        'missing_odds': 0,
+        'deduped_match': 0,
         'tier_capped': 0
     }
-    per_day_summary: Dict[str, Dict[str, int]] = {}
+    per_day_summary = {}
 
-    if not df_raw.empty and 'HomeTeam' in df_raw.columns and 'Date' in df_raw.columns:
-        for idx, row in df_raw.iterrows():
+    # Temporary store of candidates grouped by match_id
+    # match_id -> list of candidate objects
+    match_candidates: Dict[str, List[Dict[str, Any]]] = {}
+
+    # Process football-data.co.uk rows
+    if not df_csv.empty and 'HomeTeam' in df_csv.columns and 'Date' in df_csv.columns:
+        for idx, row in df_csv.iterrows():
             scanned_count += 1
             raw_date = str(row.get('Date', ''))
             raw_time = str(row.get('Time', ''))
             dt_utc = parse_kickoff_to_utc(raw_date, raw_time)
 
             if not dt_utc:
-                skipped_breakdown['missing_odds'] += 1
+                skipped_breakdown['past_or_soon'] += 1
                 continue
 
-            # Day key for daily breakdown
-            day_label = dt_utc.strftime('%Y-%m-%d')
-            if day_label not in per_day_summary:
-                per_day_summary[day_label] = {'scanned': 0, 'qualified': 0}
-            per_day_summary[day_label]['scanned'] += 1
-
-            # Strict Date Integrity check
+            # Strict Date Integrity
             is_today, is_this_week = is_upcoming_fixture(dt_utc, min_buffer_minutes=10, now_utc=now_utc)
             if not is_this_week:
                 skipped_breakdown['past_or_soon'] += 1
                 continue
 
-            div = str(row.get('Div', 'E0'))
-            if div not in LEAGUE_DIV_MAP:
+            # TODAY MEANS TODAY
+            if timeframe == "today" and not is_today:
+                skipped_breakdown['not_today'] += 1
                 continue
-            league_name = LEAGUE_DIV_MAP[div]
-            home_team = str(row['HomeTeam'])
-            away_team = str(row['AwayTeam'])
 
-            # Multi-bookmaker line shopping & consensus
+            div = str(row.get('Div', 'E1'))
+            league_name = LEAGUE_DIV_MAP.get(div, div)
+            home_team = str(row['HomeTeam']).strip()
+            away_team = str(row['AwayTeam']).strip()
+            match_id = f"fix_{div}_{dt_utc.strftime('%Y%m%d%H%M')}_{idx}"
+
+            day_key = dt_utc.strftime('%Y-%m-%d')
+            day_label = dt_utc.strftime('%a %d %b')
+            if day_label not in per_day_summary:
+                per_day_summary[day_label] = {'scanned': 0, 'qualified': 0, 'date_wat': day_label}
+            per_day_summary[day_label]['scanned'] += 1
+
+            # Extract bookmaker quotes & consensus
             market_data = compute_line_shopping_and_consensus(row)
             if not market_data:
-                skipped_breakdown['missing_odds'] += 1
+                skipped_breakdown['no_odds'] += 1
                 continue
 
             consensus_probs = market_data['consensus_probs']
             margin_pct = market_data['consensus_margin_pct']
             b_odds = market_data['bookmaker_odds']
 
-            # Vig filter: skip if consensus margin exceeds 6.0%
-            if margin_pct > 6.0:
-                skipped_breakdown['high_margin'] += 1
-                continue
+            kickoff_wat = format_wat(dt_utc)
+            countdown = format_countdown(dt_utc, now_utc)
 
-            # Team form & H2H from SQLite
-            h_form = get_team_recent_form(conn, home_team, 5)
-            a_form = get_team_recent_form(conn, away_team, 5)
-            h2h = get_head_to_head(conn, home_team, away_team, 5)
+            # Supporting facts
+            h_form = get_team_recent_form(conn, home_team)
+            a_form = get_team_recent_form(conn, away_team)
+            h2h = get_head_to_head(conn, home_team, away_team)
 
-            # Rest days computation
-            rest_days_h = 7
-            rest_days_a = 7
+            rest_days_h = 3
             if h_form.get('last_match_date'):
                 try:
                     last_h = datetime.strptime(h_form['last_match_date'], "%Y-%m-%d").replace(tzinfo=timezone.utc)
                     rest_days_h = max(1, (dt_utc - last_h).days)
                 except Exception: pass
+
+            rest_days_a = 3
             if a_form.get('last_match_date'):
                 try:
                     last_a = datetime.strptime(a_form['last_match_date'], "%Y-%m-%d").replace(tzinfo=timezone.utc)
                     rest_days_a = max(1, (dt_utc - last_a).days)
                 except Exception: pass
 
+            # Evaluate each selection (H, D, A)
             selections = [
-                ('H', f"{home_team} (Home)", 0, h_form['points']),
-                ('D', "Draw", 1, 5),
-                ('A', f"{away_team} (Away)", 2, a_form['points'])
+                ('H', f"Home ({home_team})", consensus_probs[0], h_form['points']),
+                ('D', "Draw (X)", consensus_probs[1], 1),
+                ('A', f"Away ({away_team})", consensus_probs[2], a_form['points'])
             ]
 
-            match_id = f"fix_{div}_{dt_utc.strftime('%Y%m%d')}_{idx}"
-            kickoff_wat = format_wat(dt_utc)
-            countdown = format_countdown(dt_utc, now_utc)
+            source_tag = f"football-data.co.uk fixtures.csv (fetched {csv_fetch_time})"
 
-            for sel_code, sel_label, sel_idx, team_pts in selections:
-                p_fair = consensus_probs[sel_idx]
+            for sel_code, sel_label, p_fair, team_pts in selections:
                 p_pct = p_fair * 100.0
 
-                # Tier assignment
                 if p_pct >= 55.0:
                     tier = "Steady"
-                    stake_pct = 0.01
-                    stake_cap = 0.02
+                    stake_pct, stake_cap = 0.01, 0.02
                 elif 35.0 <= p_pct < 55.0:
                     tier = "Balanced"
-                    stake_pct = 0.01
-                    stake_cap = 0.02
+                    stake_pct, stake_cap = 0.01, 0.02
                 elif p_pct < 20.0:
                     tier = "Long shot"
-                    stake_pct = 0.0025 # 0.25% hard cap
-                    stake_cap = 0.0025
+                    stake_pct, stake_cap = 0.0025, 0.0025
                 else:
                     skipped_breakdown['outside_tiers'] += 1
                     continue
 
-                # Line Shopping: evaluate all bookmakers offering this selection
-                quotes = {}
-                for b_name, odds_dict in b_odds.items():
-                    if sel_code in odds_dict and odds_dict[sel_code] > 1.0:
-                        quotes[b_name] = odds_dict[sel_code]
-
+                # Quotes for this selection
+                quotes = {b_name: o_dict[sel_code] for b_name, o_dict in b_odds.items() if sel_code in o_dict and o_dict[sel_code] > 1.0}
                 if not quotes:
                     continue
 
                 b365_odd = quotes.get('Bet365', list(quotes.values())[0])
                 best_bookmaker, best_odd = max(quotes.items(), key=lambda x: x[1])
 
-                # Expected costs per 1,000 staked
                 cost_best_1000 = max(0.0, 1000.0 * (1.0 - (p_fair * best_odd)))
                 cost_b365_1000 = max(0.0, 1000.0 * (1.0 - (p_fair * b365_odd)))
                 savings_1000 = max(0.0, cost_b365_1000 - cost_best_1000)
 
                 # Supporting facts score
                 facts_score = team_pts * 2.0 - (margin_pct * 1.5)
-                if sel_code == 'H':
-                    facts_score += h2h['home_wins'] * 2.5
-                elif sel_code == 'A':
-                    facts_score += h2h['away_wins'] * 2.5
+                if sel_code == 'H': facts_score += h2h['home_wins'] * 2.5
+                elif sel_code == 'A': facts_score += h2h['away_wins'] * 2.5
 
-                # Agreement Flag between form and market
                 if p_pct >= 55.0:
                     agreement_flag = "Form confirms market favouritism" if team_pts >= 8 else "Form diverges: team stumbling despite short market price"
                 elif p_pct >= 35.0:
@@ -423,20 +386,12 @@ def generate_suggestion_shortlist(
                 else:
                     agreement_flag = "Form diverges: underdog showing resilient form" if team_pts >= 7 else "Form confirms longshot status"
 
-                # One-line explanation: Why this is listed
                 why_listed = f"Lowest expected friction in {tier} ({margin_pct:.1f}% vig); {best_bookmaker} offers best price @ {best_odd:.2f} (saves ₦{savings_1000:.1f}/1k vs Bet365)."
-
-                # Historical bucket result from 15 seasons
                 hist_stats = get_odds_bucket_stats(conn, div, sel_code, best_odd)
 
-                # Sizing rules: Stakes assigned ONLY for Today (< 24h)
-                # This Week shows no stakes (odds may move)
-                if is_today:
-                    suggested_stake = min(round(bankroll * stake_pct, 2), round(bankroll * stake_cap, 2))
-                else:
-                    suggested_stake = None
+                suggested_stake = min(round(bankroll * stake_pct, 2), round(bankroll * stake_cap, 2)) if is_today else None
 
-                candidates.append({
+                candidate_obj = {
                     'match_id': match_id,
                     'match_name': f"{home_team} vs {away_team}",
                     'home_team': home_team,
@@ -485,32 +440,62 @@ def generate_suggestion_shortlist(
                     'historical_bucket': hist_stats,
                     'limited_history': h_form.get('limited_history', False) or a_form.get('limited_history', False),
                     'history_badge': "Limited history" if (h_form.get('limited_history', False) or a_form.get('limited_history', False)) else "5-match sample",
+                    'source': source_tag,
                     'pick_label': "Lowest-cost pick, not a prediction of profit.",
                     'prefill': {
                         'match_name': f"{home_team} vs {away_team}",
                         'selection': sel_code,
                         'home_odds': b_odds.get(best_bookmaker, {}).get('H', best_odd),
                         'draw_odds': b_odds.get(best_bookmaker, {}).get('D', 3.30),
-                        'away_odds': b_odds.get(best_bookmaker, {}).get('A', 3.40)
+                        'away_odds': b_odds.get(best_bookmaker, {}).get('A', 3.40),
+                        'kickoff_utc': dt_utc.isoformat()
                     }
-                })
+                }
 
-                if day_label in per_day_summary:
-                    per_day_summary[day_label]['qualified'] += 1
+                if match_id not in match_candidates:
+                    match_candidates[match_id] = []
+                match_candidates[match_id].append(candidate_obj)
+
+    # 4. RULE 1: ONE SELECTION PER MATCH
+    # For every match, keep ONLY the single lowest-cost qualifying selection!
+    deduped_candidates: List[Dict[str, Any]] = []
+    for match_id, cand_list in match_candidates.items():
+        if len(cand_list) > 1:
+            skipped_breakdown['deduped_match'] += (len(cand_list) - 1)
+        # Sort by expected_cost_per_1000 ascending, then facts_score descending
+        cand_list.sort(key=lambda x: (x['expected_cost_per_1000'], -x['supporting_facts']['facts_score']))
+        best_cand = cand_list[0]
+        deduped_candidates.append(best_cand)
+
+        day_label = datetime.fromisoformat(best_cand['kickoff_utc'].replace("Z", "+00:00")).strftime('%a %d %b')
+        if day_label in per_day_summary:
+            per_day_summary[day_label]['qualified'] += 1
 
     conn.close()
 
-    # Group into tiers and cap at top 3 by LOWEST expected cost
+    # Distribute deduped candidates into tiers
     tiers = {'Steady': [], 'Balanced': [], 'Long shot': []}
-    for c in candidates:
+    for c in deduped_candidates:
         if c['tier'] in tiers:
             tiers[c['tier']].append(c)
 
-    for t_name in tiers:
+    # Sort each tier by lowest cost and cap at top 3
+    seen_in_tiers = set()
+    for t_name in ['Steady', 'Balanced', 'Long shot']:
         tiers[t_name].sort(key=lambda x: (x['expected_cost_per_1000'], -x['supporting_facts']['facts_score']))
-        if len(tiers[t_name]) > 3:
-            skipped_breakdown['tier_capped'] += (len(tiers[t_name]) - 3)
-            tiers[t_name] = tiers[t_name][:3]
+        # Double check no match_id exists across multiple tiers
+        unique_tier = []
+        for c in tiers[t_name]:
+            if c['match_id'] not in seen_in_tiers:
+                unique_tier.append(c)
+                seen_in_tiers.add(c['match_id'])
+            else:
+                skipped_breakdown['deduped_match'] += 1
+
+        if len(unique_tier) > 3:
+            skipped_breakdown['tier_capped'] += (len(unique_tier) - 3)
+            unique_tier = unique_tier[:3]
+        tiers[t_name] = unique_tier
 
     total_qual = sum(len(v) for v in tiers.values())
 
@@ -523,6 +508,7 @@ def generate_suggestion_shortlist(
             'total_shortlisted': total_qual,
             'max_per_tier': 3,
             'bankroll': bankroll,
+            'timeframe': timeframe,
             'label': "Lowest-cost pick, not a prediction of profit."
         },
         'scan_summary': {

@@ -24,15 +24,21 @@ import {
 interface ShortlistTabProps {
   shortlist: ShortlistResponse | null;
   loading: boolean;
+  timeframe?: "today" | "week";
+  onTimeframeChange?: (timeframe: "today" | "week") => void;
   onPlaceBet: (candidate: ShortlistCandidate) => void;
   onOpenCustomOdds: (prefill?: any) => void;
+  onOpenAddCustomFixture?: () => void;
 }
 
 export function ShortlistTab({
   shortlist,
   loading,
+  timeframe = "today",
+  onTimeframeChange,
   onPlaceBet,
   onOpenCustomOdds,
+  onOpenAddCustomFixture,
 }: ShortlistTabProps) {
   const [expandedFacts, setExpandedFacts] = useState<Record<string, boolean>>({});
   const [placingIds, setPlacingIds] = useState<Record<string, boolean>>({});
@@ -138,6 +144,42 @@ export function ShortlistTab({
           </div>
         </div>
       )}
+
+      {/* Timeframe Controls & Actions */}
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => onTimeframeChange?.("today")}
+            className={`px-3 py-1.5 rounded-lg border font-mono text-[11px] transition-colors cursor-pointer ${
+              timeframe === "today"
+                ? "bg-lavender/15 text-lavender border-lavender/30 font-bold"
+                : "bg-bg-900 text-text-muted border-border-dark hover:text-text-primary"
+            }`}
+          >
+            Today's Slate (&lt;24h)
+          </button>
+          <button
+            onClick={() => onTimeframeChange?.("week")}
+            className={`px-3 py-1.5 rounded-lg border font-mono text-[11px] transition-colors cursor-pointer ${
+              timeframe === "week"
+                ? "bg-lavender/15 text-lavender border-lavender/30 font-bold"
+                : "bg-bg-900 text-text-muted border-border-dark hover:text-text-primary"
+            }`}
+          >
+            This Week (Next 7 Days)
+          </button>
+        </div>
+
+        {onOpenAddCustomFixture && (
+          <button
+            onClick={onOpenAddCustomFixture}
+            className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-bg-900 hover:bg-bg-800 border border-border-dark hover:border-lavender text-text-primary text-[11px] font-mono transition-colors self-start sm:self-auto cursor-pointer"
+          >
+            <PlusCircle className="w-3.5 h-3.5 text-lavender" />
+            <span>Add Custom Fixture</span>
+          </button>
+        )}
+      </div>
 
       {/* Scan Summary Bar */}
       {scan && (
@@ -572,6 +614,14 @@ function TierColumn({
                     </div>
                   )}
                 </div>
+
+                {/* Real Data Provenance Source Tag */}
+                {candidate.source && (
+                  <div className="text-[9px] font-mono text-text-muted truncate pt-1 border-t border-border-dark/40 flex items-center gap-1">
+                    <span className="text-lavender shrink-0">source:</span>
+                    <span className="truncate">{candidate.source}</span>
+                  </div>
+                )}
 
                 {/* Persistent Card Label */}
                 <div className="text-[10px] text-center text-text-muted italic font-mono pt-1">

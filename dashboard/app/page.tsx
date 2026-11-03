@@ -19,11 +19,14 @@ import { LedgerTab } from "../components/LedgerTab";
 import { AccumulatorTab } from "../components/AccumulatorTab";
 import { StrategyTesterTab } from "../components/StrategyTesterTab";
 import { ManualOddsModal, ManualOddsPrefill } from "../components/ManualOddsModal";
+import { AddCustomFixtureModal } from "../components/AddCustomFixtureModal";
 
 export default function DashboardPage() {
   const [activeTab, setActiveTab] = useState<string>("shortlist");
   const [cmdkOpen, setCmdkOpen] = useState(false);
   const [customOddsOpen, setCustomOddsOpen] = useState(false);
+  const [addFixtureOpen, setAddFixtureOpen] = useState(false);
+  const [shortlistTimeframe, setShortlistTimeframe] = useState<"today" | "week">("today");
   const [customOddsPrefill, setCustomOddsPrefill] = useState<ManualOddsPrefill | null>(null);
 
   const [shortlist, setShortlist] = useState<ShortlistResponse | null>(null);
@@ -53,10 +56,11 @@ export default function DashboardPage() {
   }, []);
 
   // Load Shortlist
-  const loadShortlist = useCallback(async (currentBankroll?: number) => {
+  const loadShortlist = useCallback(async (currentBankroll?: number, tf?: "today" | "week") => {
     setLoadingShortlist(true);
+    const activeTf = tf || shortlistTimeframe;
     try {
-      const data = await api.getShortlist(currentBankroll);
+      const data = await api.getShortlist(currentBankroll, activeTf);
       setShortlist(data);
       if (data.data_health) {
         setDataHealth(data.data_health);
@@ -66,7 +70,7 @@ export default function DashboardPage() {
     } finally {
       setLoadingShortlist(false);
     }
-  }, []);
+  }, [shortlistTimeframe]);
 
   // Load Fixtures
   const loadFixtures = useCallback(async () => {
@@ -338,6 +342,7 @@ export default function DashboardPage() {
         stats={dataHealth}
         loading={loadingHealth}
         onRefreshFixtures={handleRefreshFixtures}
+        onOpenAddCustomFixture={() => setAddFixtureOpen(true)}
       />
 
       {/* Main Content Area */}
@@ -346,8 +351,14 @@ export default function DashboardPage() {
           <ShortlistTab
             shortlist={shortlist}
             loading={loadingShortlist}
+            timeframe={shortlistTimeframe}
+            onTimeframeChange={(tf) => {
+              setShortlistTimeframe(tf);
+              loadShortlist(ledger?.current_bankroll, tf);
+            }}
             onPlaceBet={handlePlaceBet}
             onOpenCustomOdds={openCustomOddsModal}
+            onOpenAddCustomFixture={() => setAddFixtureOpen(true)}
           />
         )}
 
@@ -356,6 +367,7 @@ export default function DashboardPage() {
             fixtures={fixtures}
             loading={loadingFixtures}
             onOpenCustomOdds={openCustomOddsModal}
+            onOpenAddCustomFixture={() => setAddFixtureOpen(true)}
             onRefresh={handleRefresh}
           />
         )}
@@ -395,6 +407,17 @@ export default function DashboardPage() {
         onClose={() => setCustomOddsOpen(false)}
         prefill={customOddsPrefill}
         onPlaceBet={handlePlaceCustomBet}
+      />
+
+      {/* Add Custom Fixture Modal */}
+      <AddCustomFixtureModal
+        open={addFixtureOpen}
+        onClose={() => setAddFixtureOpen(false)}
+        onSuccess={async () => {
+          await loadDataHealth();
+          await loadFixtures();
+          await loadShortlist(ledger?.current_bankroll);
+        }}
       />
 
       {/* Footer */}

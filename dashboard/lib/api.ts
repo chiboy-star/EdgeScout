@@ -6,14 +6,22 @@
 export interface DataHealthStats {
   latest_match_date: string;
   total_db_matches: number;
-  fixtures_fetched_at: string;
+  fixtures_fetched_at?: string;
   fixtures_fetch_time_label: string;
   is_stale: boolean;
   age_hours: number;
-  next_kickoff_utc: string | null;
-  next_kickoff_wat: string;
-  next_countdown: string;
-  upcoming_count: number;
+  next_kickoff_utc?: string | null;
+  next_kickoff_wat?: string;
+  next_countdown?: string;
+  upcoming_count?: number;
+  fixtures_csv_rows?: number;
+  fixtures_csv_leagues?: Record<string, number>;
+  football_data_org_key_set?: boolean;
+  football_data_org_matches?: number;
+  football_data_org_leagues?: Record<string, number>;
+  custom_fixtures_count?: number;
+  missing_competitions?: string[];
+  coverage_explanation?: string;
 }
 
 export interface ShortlistCandidate {
@@ -78,6 +86,7 @@ export interface ShortlistCandidate {
   limited_history?: boolean;
   history_badge?: string;
   pick_label: string;
+  source?: string;
   is_demo?: boolean;
   prefill?: {
     match_name: string;
@@ -194,6 +203,7 @@ export interface FixtureItem {
   category: "Market Favourite" | "Contested" | "Longshot" | "Awaiting Odds" | string;
   dominant_category?: string;
   risk_badge: string;
+  source?: string;
   is_demo?: boolean;
 }
 
@@ -210,17 +220,38 @@ export const api = {
     return res.json();
   },
 
-  async getShortlist(bankroll?: number): Promise<ShortlistResponse> {
-    const url = bankroll ? `/api/shortlist?bankroll=${bankroll}` : '/api/shortlist';
+  async getShortlist(bankroll?: number, timeframe = 'today'): Promise<ShortlistResponse> {
+    const url = `/api/shortlist?timeframe=${timeframe}${bankroll ? `&bankroll=${bankroll}` : ''}`;
     const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('Failed to fetch shortlist');
     return res.json();
   },
 
-  async getFixtures(): Promise<{ fixtures: FixtureItem[] }> {
-    const res = await fetch('/api/fixtures', { cache: 'no-store' });
+  async getFixtures(forceRefresh = false): Promise<{ fixtures: FixtureItem[] }> {
+    const url = `/api/fixtures${forceRefresh ? '?force_refresh=true' : ''}`;
+    const res = await fetch(url, { cache: 'no-store' });
     if (!res.ok) throw new Error('Failed to fetch fixtures');
     return res.json();
+  },
+
+  async addCustomFixture(data: {
+    match_name: string;
+    home_team?: string;
+    away_team?: string;
+    league?: string;
+    kickoff_utc: string;
+    home_odds: number;
+    draw_odds: number;
+    away_odds: number;
+  }): Promise<any> {
+    const res = await fetch('/api/fixtures/custom', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(data),
+    });
+    const json = await res.json();
+    if (!res.ok) throw new Error(json.detail || 'Failed to add custom fixture');
+    return json;
   },
 
   async getLedger(): Promise<LedgerSummary> {

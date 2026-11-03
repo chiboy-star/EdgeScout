@@ -18,6 +18,7 @@ interface FixturesTabProps {
   fixtures: FixtureItem[];
   loading: boolean;
   onOpenCustomOdds: (prefill?: any) => void;
+  onOpenAddCustomFixture?: () => void;
   onRefresh?: () => void;
 }
 
@@ -25,6 +26,7 @@ export function FixturesTab({
   fixtures,
   loading,
   onOpenCustomOdds,
+  onOpenAddCustomFixture,
   onRefresh,
 }: FixturesTabProps) {
   const [selectedLeague, setSelectedLeague] = useState<string>("ALL");
@@ -79,19 +81,31 @@ export function FixturesTab({
             </p>
           </div>
 
-          {/* League Dropdown Filter */}
-          <div className="flex items-center gap-2 self-start md:self-auto">
-            <Filter className="w-3.5 h-3.5 text-lavender" />
-            <span className="text-xs text-text-muted font-mono">League:</span>
-            <select
-              value={selectedLeague}
-              onChange={(e) => setSelectedLeague(e.target.value)}
-              className="bg-bg-950 border border-border-dark text-text-primary text-xs rounded-lg px-2.5 py-1.5 focus:outline-none focus:border-border-subdued cursor-pointer"
-            >
-              {leagues.map(l => (
-                <option key={l} value={l}>{l}</option>
-              ))}
-            </select>
+          {/* League Dropdown Filter & Actions */}
+          <div className="flex items-center gap-2 self-start md:self-auto flex-wrap">
+            {onOpenAddCustomFixture && (
+              <button
+                onClick={onOpenAddCustomFixture}
+                className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-lg bg-bg-950 hover:bg-bg-800 border border-border-dark hover:border-lavender text-lavender text-xs font-mono transition-colors cursor-pointer"
+              >
+                <SlidersHorizontal className="w-3 h-3" />
+                <span>Add Custom Fixture</span>
+              </button>
+            )}
+
+            <div className="flex items-center gap-1.5 bg-bg-950 border border-border-dark rounded-lg px-2 py-1">
+              <Filter className="w-3.5 h-3.5 text-lavender" />
+              <span className="text-xs text-text-muted font-mono">League:</span>
+              <select
+                value={selectedLeague}
+                onChange={(e) => setSelectedLeague(e.target.value)}
+                className="bg-transparent text-text-primary text-xs focus:outline-none cursor-pointer"
+              >
+                {leagues.map(l => (
+                  <option key={l} value={l} className="bg-bg-950">{l}</option>
+                ))}
+              </select>
+            </div>
           </div>
         </div>
 
@@ -323,6 +337,14 @@ export function FixturesTab({
                   {f.risk_badge}
                 </span>
               </div>
+
+              {/* Provenance Source */}
+              {f.source && (
+                <div className="text-[9px] font-mono text-text-muted truncate pt-1 border-t border-border-dark/30 flex items-center gap-1">
+                  <span className="text-lavender shrink-0">source:</span>
+                  <span className="truncate">{f.source}</span>
+                </div>
+              )}
             </div>
           ))}
         </div>

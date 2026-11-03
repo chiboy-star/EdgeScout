@@ -1,9 +1,14 @@
 """
-Fixtures Feed & Data Health Engine for EdgeScout.
-Manages multi-bookmaker pre-match odds, kickoff parsing, UTC storage,
-Africa/Lagos (WAT) formatting, and data health strip metadata.
+Fixtures Feed & Real Data Provenance Engine for EdgeScout Phase 4.4.
+Enforces 100% REAL DATA from verified sources:
+1. football-data.co.uk fixtures.csv (live bookmaker pre-match odds)
+2. api.football-data.org v4 matches (Tier One schedule: Champions League, Premier League, Championship, etc.)
+3. SQLite custom_fixtures (user manual entries)
+
+Strictly NO hardcoded demo fixtures. Every fixture carries an auditable source tag.
 """
 import io
+import os
 import time
 import json
 import sqlite3
@@ -12,6 +17,9 @@ import pandas as pd
 from typing import Dict, List, Optional, Any, Tuple
 from pathlib import Path
 from datetime import datetime, timezone, timedelta
+from dotenv import load_dotenv
+
+load_dotenv()
 
 from edgescout.config import DEFAULT_DB_PATH, CACHE_DIR
 from edgescout.dates import (
@@ -24,345 +32,330 @@ from edgescout.dates import (
 
 FIXTURES_CSV_URL = "https://www.football-data.co.uk/fixtures.csv"
 FIXTURES_CACHE_FILE = CACHE_DIR / "fixtures_co_uk.csv"
+FIXTURES_META_FILE = CACHE_DIR / "fixtures_meta.json"
+FD_ORG_CACHE_FILE = CACHE_DIR / "football_data_org_7d.json"
 
-# Comprehensive upcoming fixtures slate with multi-bookmaker odds (Nov 3 - Nov 10, 2026)
-# Times are UK local time (Europe/London). Converted to UTC and WAT.
-REAL_UPCOMING_SLATE = [
-    # TODAY: Tuesday 3 Nov 2026 (Championship & Domestic)
-    {
-        'Div': 'E1', 'Date': '03/11/2026', 'Time': '18:45',
-        'HomeTeam': 'Blackburn', 'AwayTeam': 'Stoke',
-        'B365H': 2.25, 'B365D': 3.30, 'B365A': 3.25,
-        'BVH': 2.30, 'BVD': 3.30, 'BVA': 3.20,
-        'BWH': 2.20, 'BWD': 3.35, 'BWA': 3.30,
-        'SKBH': 2.25, 'SKBD': 3.25, 'SKBA': 3.30,
-        'PPH': 2.25, 'PPD': 3.30, 'PPA': 3.25,
-        'BFDH': 2.25, 'BFDD': 3.30, 'BFDA': 3.20,
-        'PSH': 2.28, 'PSD': 3.34, 'PSA': 3.27,
-        'MaxH': 2.32, 'MaxD': 3.40, 'MaxA': 3.35,
-        'AvgH': 2.24, 'AvgD': 3.31, 'AvgA': 3.25
-    },
-    {
-        'Div': 'E1', 'Date': '03/11/2026', 'Time': '18:45',
-        'HomeTeam': 'Watford', 'AwayTeam': 'Lincoln',
-        'B365H': 1.70, 'B365D': 3.80, 'B365A': 5.00,
-        'BVH': 1.75, 'BVD': 3.75, 'BVA': 5.10,
-        'BWH': 1.68, 'BWD': 3.85, 'BWA': 4.90,
-        'SKBH': 1.70, 'SKBD': 3.70, 'SKBA': 5.25,
-        'PPH': 1.72, 'PPD': 3.80, 'PPA': 5.00,
-        'BFDH': 1.70, 'BFDD': 3.80, 'BFDA': 5.00,
-        'PSH': 1.72, 'PSD': 3.82, 'PSA': 5.15,
-        'MaxH': 1.76, 'MaxD': 3.90, 'MaxA': 5.30,
-        'AvgH': 1.70, 'AvgD': 3.78, 'AvgA': 5.05
-    },
-    {
-        'Div': 'E1', 'Date': '03/11/2026', 'Time': '18:45',
-        'HomeTeam': 'Portsmouth', 'AwayTeam': 'Swansea',
-        'B365H': 2.60, 'B365D': 3.20, 'B365A': 2.80,
-        'BVH': 2.65, 'BVD': 3.25, 'BVA': 2.75,
-        'BWH': 2.55, 'BWD': 3.20, 'BWA': 2.85,
-        'SKBH': 2.60, 'SKBD': 3.15, 'SKBA': 2.80,
-        'PPH': 2.60, 'PPD': 3.20, 'PPA': 2.80,
-        'BFDH': 2.60, 'BFDD': 3.20, 'BFDA': 2.80,
-        'PSH': 2.63, 'PSD': 3.24, 'PSA': 2.82,
-        'MaxH': 2.68, 'MaxD': 3.28, 'MaxA': 2.88,
-        'AvgH': 2.59, 'AvgD': 3.20, 'AvgA': 2.80
-    },
-    {
-        'Div': 'E1', 'Date': '03/11/2026', 'Time': '19:45',
-        'HomeTeam': 'Queens Park Rangers', 'AwayTeam': 'Burnley',
-        'B365H': 3.40, 'B365D': 3.30, 'B365A': 2.15,
-        'BVH': 3.45, 'BVD': 3.35, 'BVA': 2.18,
-        'BWH': 3.35, 'BWD': 3.30, 'BWA': 2.20,
-        'SKBH': 3.40, 'SKBD': 3.25, 'SKBA': 2.15,
-        'PPH': 3.40, 'PPD': 3.30, 'PPA': 2.15,
-        'BFDH': 3.40, 'BFDD': 3.30, 'BFDA': 2.15,
-        'PSH': 3.44, 'PSD': 3.35, 'PSA': 2.18,
-        'MaxH': 3.50, 'MaxD': 3.40, 'MaxA': 2.22,
-        'AvgH': 3.38, 'AvgD': 3.30, 'AvgA': 2.16
-    },
-    {
-        'Div': 'E1', 'Date': '03/11/2026', 'Time': '19:45',
-        'HomeTeam': 'Derby', 'AwayTeam': 'Norwich',
-        'B365H': 2.80, 'B365D': 3.30, 'B365A': 2.50,
-        'BVH': 2.85, 'BVD': 3.30, 'BVA': 2.55,
-        'BWH': 2.75, 'BWD': 3.35, 'BWA': 2.45,
-        'SKBH': 2.80, 'SKBD': 3.25, 'SKBA': 2.50,
-        'PPH': 2.80, 'PPD': 3.30, 'PPA': 2.50,
-        'BFDH': 2.80, 'BFDD': 3.30, 'BFDA': 2.50,
-        'PSH': 2.84, 'PSD': 3.32, 'PSA': 2.53,
-        'MaxH': 2.88, 'MaxD': 3.38, 'MaxA': 2.58,
-        'AvgH': 2.79, 'AvgD': 3.30, 'AvgA': 2.50
-    },
-    {
-        'Div': 'E1', 'Date': '03/11/2026', 'Time': '19:45',
-        'HomeTeam': 'Preston', 'AwayTeam': 'Sheffield United',
-        'B365H': 3.60, 'B365D': 3.40, 'B365A': 2.05,
-        'BVH': 3.65, 'BVD': 3.45, 'BVA': 2.08,
-        'BWH': 3.55, 'BWD': 3.40, 'BWA': 2.10,
-        'SKBH': 3.60, 'SKBD': 3.35, 'SKBA': 2.05,
-        'PPH': 3.60, 'PPD': 3.40, 'PPA': 2.05,
-        'BFDH': 3.60, 'BFDD': 3.40, 'BFDA': 2.05,
-        'PSH': 3.66, 'PSD': 3.43, 'PSA': 2.07,
-        'MaxH': 3.72, 'MaxD': 3.50, 'MaxA': 2.12,
-        'AvgH': 3.58, 'AvgD': 3.40, 'AvgA': 2.06
-    },
-    # TOMORROW: Wednesday 4 Nov 2026
-    {
-        'Div': 'E1', 'Date': '04/11/2026', 'Time': '19:45',
-        'HomeTeam': 'Luton', 'AwayTeam': 'Cardiff',
-        'B365H': 1.85, 'B365D': 3.50, 'B365A': 4.33,
-        'BVH': 1.88, 'BVD': 3.50, 'BVA': 4.40,
-        'BWH': 1.83, 'BWD': 3.55, 'BWA': 4.25,
-        'SKBH': 1.85, 'SKBD': 3.40, 'SKBA': 4.33,
-        'PPH': 1.85, 'PPD': 3.50, 'PPA': 4.33,
-        'BFDH': 1.85, 'BFDD': 3.50, 'BFDA': 4.30,
-        'PSH': 1.87, 'PSD': 3.52, 'PSA': 4.38,
-        'MaxH': 1.90, 'MaxD': 3.60, 'MaxA': 4.50,
-        'AvgH': 1.84, 'AvgD': 3.48, 'AvgA': 4.30
-    },
-    {
-        'Div': 'E1', 'Date': '04/11/2026', 'Time': '19:45',
-        'HomeTeam': 'Millwall', 'AwayTeam': 'Leeds',
-        'B365H': 4.50, 'B365D': 3.60, 'B365A': 1.80,
-        'BVH': 4.60, 'BVD': 3.65, 'BVA': 1.83,
-        'BWH': 4.40, 'BWD': 3.60, 'BWA': 1.78,
-        'SKBH': 4.50, 'SKBD': 3.50, 'SKBA': 1.80,
-        'PPH': 4.50, 'PPD': 3.60, 'PPA': 1.80,
-        'BFDH': 4.50, 'BFDD': 3.60, 'BFDA': 1.80,
-        'PSH': 4.58, 'PSD': 3.64, 'PSA': 1.82,
-        'MaxH': 4.70, 'MaxD': 3.70, 'MaxA': 1.85,
-        'AvgH': 4.46, 'AvgD': 3.58, 'AvgA': 1.80
-    },
-    # THIS WEEKEND: Saturday 7 Nov 2026
-    {
-        'Div': 'E0', 'Date': '07/11/2026', 'Time': '12:30',
-        'HomeTeam': 'Arsenal', 'AwayTeam': 'Chelsea',
-        'B365H': 1.75, 'B365D': 3.90, 'B365A': 4.50,
-        'BVH': 1.80, 'BVD': 3.90, 'BVA': 4.60,
-        'BWH': 1.73, 'BWD': 3.95, 'BWA': 4.40,
-        'SKBH': 1.75, 'SKBD': 3.80, 'SKBA': 4.50,
-        'PPH': 1.75, 'PPD': 3.90, 'PPA': 4.50,
-        'BFDH': 1.75, 'BFDD': 3.90, 'BFDA': 4.50,
-        'PSH': 1.78, 'PSD': 3.92, 'PSA': 4.58,
-        'MaxH': 1.82, 'MaxD': 4.05, 'MaxA': 4.75,
-        'AvgH': 1.75, 'AvgD': 3.88, 'AvgA': 4.48
-    },
-    {
-        'Div': 'E0', 'Date': '07/11/2026', 'Time': '15:00',
-        'HomeTeam': 'Aston Villa', 'AwayTeam': 'Newcastle',
-        'B365H': 2.30, 'B365D': 3.50, 'B365A': 3.00,
-        'BVH': 2.35, 'BVD': 3.55, 'BVA': 2.95,
-        'BWH': 2.25, 'BWD': 3.50, 'BWA': 3.05,
-        'SKBH': 2.30, 'SKBD': 3.45, 'SKBA': 3.00,
-        'PPH': 2.30, 'PPD': 3.50, 'PPA': 3.00,
-        'BFDH': 2.30, 'BFDD': 3.50, 'BFDA': 3.00,
-        'PSH': 2.33, 'PSD': 3.52, 'PSA': 3.02,
-        'MaxH': 2.38, 'MaxD': 3.60, 'MaxA': 3.10,
-        'AvgH': 2.29, 'AvgD': 3.49, 'AvgA': 2.98
-    },
-    {
-        'Div': 'D1', 'Date': '07/11/2026', 'Time': '17:30',
-        'HomeTeam': 'Bayern Munich', 'AwayTeam': 'Dortmund',
-        'B365H': 1.55, 'B365D': 4.75, 'B365A': 5.25,
-        'BVH': 1.58, 'BVD': 4.80, 'BVA': 5.35,
-        'BWH': 1.53, 'BWD': 4.75, 'BWA': 5.15,
-        'SKBH': 1.55, 'SKBD': 4.60, 'SKBA': 5.25,
-        'PPH': 1.55, 'PPD': 4.75, 'PPA': 5.25,
-        'BFDH': 1.55, 'BFDD': 4.75, 'BFDA': 5.25,
-        'PSH': 1.57, 'PSD': 4.78, 'PSA': 5.32,
-        'MaxH': 1.60, 'MaxD': 4.90, 'MaxA': 5.50,
-        'AvgH': 1.55, 'AvgD': 4.71, 'AvgA': 5.22
-    },
-    {
-        'Div': 'SP1', 'Date': '07/11/2026', 'Time': '20:00',
-        'HomeTeam': 'Real Madrid', 'AwayTeam': 'Barcelona',
-        'B365H': 2.15, 'B365D': 3.70, 'B365A': 3.10,
-        'BVH': 2.20, 'BVD': 3.75, 'BVA': 3.05,
-        'BWH': 2.10, 'BWD': 3.70, 'BWA': 3.15,
-        'SKBH': 2.15, 'SKBD': 3.60, 'SKBA': 3.10,
-        'PPH': 2.15, 'PPD': 3.70, 'PPA': 3.10,
-        'BFDH': 2.15, 'BFDD': 3.70, 'BFDA': 3.10,
-        'PSH': 2.18, 'PSD': 3.72, 'PSA': 3.13,
-        'MaxH': 2.23, 'MaxD': 3.82, 'MaxA': 3.20,
-        'AvgH': 2.14, 'AvgD': 3.68, 'AvgA': 3.09
-    },
-    # THIS WEEKEND: Sunday 8 Nov 2026
-    {
-        'Div': 'E0', 'Date': '08/11/2026', 'Time': '16:30',
-        'HomeTeam': 'Manchester City', 'AwayTeam': 'Liverpool',
-        'B365H': 2.05, 'B365D': 3.75, 'B365A': 3.30,
-        'BVH': 2.10, 'BVD': 3.80, 'BVA': 3.25,
-        'BWH': 2.00, 'BWD': 3.75, 'BWA': 3.35,
-        'SKBH': 2.05, 'SKBD': 3.70, 'SKBA': 3.30,
-        'PPH': 2.05, 'PPD': 3.75, 'PPA': 3.30,
-        'BFDH': 2.05, 'BFDD': 3.75, 'BFDA': 3.30,
-        'PSH': 2.08, 'PSD': 3.78, 'PSA': 3.33,
-        'MaxH': 2.12, 'MaxD': 3.88, 'MaxA': 3.42,
-        'AvgH': 2.04, 'AvgD': 3.73, 'AvgA': 3.28
-    },
-    {
-        'Div': 'I1', 'Date': '08/11/2026', 'Time': '19:45',
-        'HomeTeam': 'Inter', 'AwayTeam': 'Juventus',
-        'B365H': 1.95, 'B365D': 3.40, 'B365A': 4.10,
-        'BVH': 2.00, 'BVD': 3.45, 'BVA': 4.05,
-        'BWH': 1.91, 'BWD': 3.40, 'BWA': 4.15,
-        'SKBH': 1.95, 'SKBD': 3.35, 'SKBA': 4.10,
-        'PPH': 1.95, 'PPD': 3.40, 'PPA': 4.10,
-        'BFDH': 1.95, 'BFDD': 3.40, 'BFDA': 4.10,
-        'PSH': 1.98, 'PSD': 3.43, 'PSA': 4.14,
-        'MaxH': 2.03, 'MaxD': 3.52, 'MaxA': 4.25,
-        'AvgH': 1.94, 'AvgD': 3.39, 'AvgA': 4.08
-    },
-    {
-        'Div': 'F1', 'Date': '08/11/2026', 'Time': '20:00',
-        'HomeTeam': 'Paris SG', 'AwayTeam': 'Marseille',
-        'B365H': 1.45, 'B365D': 4.75, 'B365A': 6.50,
-        'BVH': 1.48, 'BVD': 4.80, 'BVA': 6.60,
-        'BWH': 1.43, 'BWD': 4.75, 'BWA': 6.40,
-        'SKBH': 1.45, 'SKBD': 4.60, 'SKBA': 6.50,
-        'PPH': 1.45, 'PPD': 4.75, 'PPA': 6.50,
-        'BFDH': 1.45, 'BFDD': 4.75, 'BFDA': 6.50,
-        'PSH': 1.47, 'PSD': 4.80, 'PSA': 6.58,
-        'MaxH': 1.50, 'MaxD': 4.95, 'MaxA': 6.80,
-        'AvgH': 1.45, 'AvgD': 4.72, 'AvgA': 6.45
-    }
-]
+# Competition display names
+LEAGUE_DIV_MAP = {
+    'E0': 'Premier League',
+    'E1': 'Championship',
+    'E2': 'League One',
+    'E3': 'League Two',
+    'SP1': 'La Liga',
+    'I1': 'Serie A',
+    'D1': 'Bundesliga',
+    'F1': 'Ligue 1',
+    'B1': 'Belgian First Division',
+    'N1': 'Dutch Eredivisie',
+    'P1': 'Primeira Liga',
+    'CL': 'UEFA Champions League',
+    'CUSTOM': 'Custom Competition'
+}
+
+FD_ORG_COMP_MAP = {
+    'CL': ('CL', 'UEFA Champions League'),
+    'ELC': ('E1', 'Championship'),
+    'PL': ('E0', 'Premier League'),
+    'PD': ('SP1', 'La Liga'),
+    'SA': ('I1', 'Serie A'),
+    'BL1': ('D1', 'Bundesliga'),
+    'FL1': ('F1', 'Ligue 1'),
+    'DED': ('N1', 'Dutch Eredivisie'),
+    'PPL': ('P1', 'Primeira Liga'),
+    'BSA': ('BSA', 'Campeonato Brasileiro')
+}
 
 
-def load_fixtures_dataframe(force_refresh: bool = False) -> pd.DataFrame:
+def init_custom_fixtures_table(db_path: Path = DEFAULT_DB_PATH):
+    """Initializes table for user-entered custom fixtures and odds."""
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("""
+        CREATE TABLE IF NOT EXISTS custom_fixtures (
+            id TEXT PRIMARY KEY,
+            match_name TEXT NOT NULL,
+            home_team TEXT NOT NULL,
+            away_team TEXT NOT NULL,
+            league TEXT NOT NULL,
+            league_code TEXT NOT NULL,
+            kickoff_utc TEXT NOT NULL,
+            home_odds REAL NOT NULL,
+            draw_odds REAL NOT NULL,
+            away_odds REAL NOT NULL,
+            source TEXT NOT NULL DEFAULT 'manual_entry',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        );
+        """)
+        conn.commit()
+
+
+def fetch_football_data_co_uk_csv() -> Tuple[pd.DataFrame, str]:
     """
-    Loads upcoming fixtures dataframe from cache or downloads from football-data.co.uk.
-    Ensures that real upcoming fixtures for today and this week are present.
+    Downloads real fixtures.csv from football-data.co.uk.
+    Returns DataFrame and ISO timestamp of fetch.
     """
-    df = None
-    if FIXTURES_CACHE_FILE.exists() and not force_refresh:
-        try:
-            df = pd.read_csv(FIXTURES_CACHE_FILE)
-        except Exception:
-            df = None
-
-    # If missing or force_refresh requested, fetch live or build fresh
-    if df is None or force_refresh or df.empty:
-        df = fetch_and_cache_fixtures()
-
-    # Verify that future matches exist; if not, merge the upcoming verified slate
-    now_utc = get_now_utc()
-    has_future = False
-    if 'Date' in df.columns:
-        for _, row in df.iterrows():
-            dt = parse_kickoff_to_utc(str(row.get('Date', '')), str(row.get('Time', '')))
-            if dt and dt >= now_utc + timedelta(minutes=10):
-                has_future = True
-                break
-
-    if not has_future:
-        # Augment with verified upcoming slate so future matches are guaranteed
-        upcoming_df = pd.DataFrame(REAL_UPCOMING_SLATE)
-        # Avoid duplicate match_names if already present
-        if not df.empty and 'HomeTeam' in df.columns:
-            existing_matches = set(df['HomeTeam'].astype(str) + " vs " + df['AwayTeam'].astype(str))
-            new_rows = upcoming_df[~upcoming_df.apply(lambda r: f"{r['HomeTeam']} vs {r['AwayTeam']}" in existing_matches, axis=1)]
-            df = pd.concat([upcoming_df, df], ignore_index=True)
-        else:
-            df = upcoming_df
-        df.to_csv(FIXTURES_CACHE_FILE, index=False)
-
-    return df
-
-
-def fetch_and_cache_fixtures() -> pd.DataFrame:
-    """
-    Fetches real fixtures.csv from football-data.co.uk and writes to disk.
-    Always includes the verified upcoming schedule so valid fixtures are present.
-    """
-    upcoming_df = pd.DataFrame(REAL_UPCOMING_SLATE)
+    fetch_time_str = datetime.now(timezone.utc).isoformat()
     try:
         session = requests.Session()
         session.trust_env = False
-        resp = session.get(FIXTURES_CSV_URL, timeout=8)
+        resp = session.get(FIXTURES_CSV_URL, timeout=10)
         if resp.status_code == 200 and len(resp.content) > 100:
-            web_df = pd.read_csv(io.BytesIO(resp.content))
-            web_df.columns = [c.replace('\ufeff', '').strip() for c in web_df.columns]
-            combined = pd.concat([upcoming_df, web_df], ignore_index=True)
-            # Remove exact duplicate fixtures
-            if 'HomeTeam' in combined.columns and 'Date' in combined.columns:
-                combined = combined.drop_duplicates(subset=['Div', 'Date', 'HomeTeam', 'AwayTeam'])
-            combined.to_csv(FIXTURES_CACHE_FILE, index=False)
-            return combined
+            df = pd.read_csv(io.BytesIO(resp.content))
+            df.columns = [c.replace('\ufeff', '').strip() for c in df.columns]
+            # Save raw file and metadata
+            df.to_csv(FIXTURES_CACHE_FILE, index=False)
+            with open(FIXTURES_META_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'fetched_at': fetch_time_str, 'rows': len(df)}, f)
+            return df, fetch_time_str
     except Exception as e:
-        print(f"Notice: live fixtures.csv fetch ({e}); using verified upcoming slate.")
+        print(f"Notice: live fixtures.csv fetch error ({e}); attempting cache.")
 
-    upcoming_df.to_csv(FIXTURES_CACHE_FILE, index=False)
-    return upcoming_df
+    if FIXTURES_CACHE_FILE.exists():
+        try:
+            df = pd.read_csv(FIXTURES_CACHE_FILE)
+            if FIXTURES_META_FILE.exists():
+                with open(FIXTURES_META_FILE, 'r', encoding='utf-8') as f:
+                    meta = json.load(f)
+                    fetch_time_str = meta.get('fetched_at', fetch_time_str)
+            return df, fetch_time_str
+        except Exception:
+            pass
+
+    return pd.DataFrame(), fetch_time_str
+
+
+def fetch_football_data_org_matches() -> Tuple[List[Dict[str, Any]], str]:
+    """
+    Fetches scheduled matches from api.football-data.org (Tier One: CL, PL, ELC, PD, SA, etc.)
+    for the next 7 days.
+    """
+    key = os.getenv('FOOTBALL_DATA_ORG_KEY') or os.getenv('FOOTBALL_DATA_KEY')
+    fetch_time_str = datetime.now(timezone.utc).isoformat()
+    if not key or not key.strip():
+        # Check cache
+        if FD_ORG_CACHE_FILE.exists():
+            try:
+                with open(FD_ORG_CACHE_FILE, 'r', encoding='utf-8') as f:
+                    cached = json.load(f)
+                    return cached.get('matches', []), cached.get('fetched_at', fetch_time_str)
+            except Exception:
+                pass
+        return [], fetch_time_str
+
+    now_utc = get_now_utc()
+    date_from = now_utc.strftime('%Y-%m-%d')
+    date_to = (now_utc + timedelta(days=7)).strftime('%Y-%m-%d')
+
+    # If cache is fresh (< 15 mins), use it
+    if FD_ORG_CACHE_FILE.exists():
+        try:
+            mtime = FD_ORG_CACHE_FILE.stat().st_mtime
+            if time.time() - mtime < 900: # 15 minutes
+                with open(FD_ORG_CACHE_FILE, 'r', encoding='utf-8') as f:
+                    cached = json.load(f)
+                    return cached.get('matches', []), cached.get('fetched_at', fetch_time_str)
+        except Exception:
+            pass
+
+    try:
+        session = requests.Session()
+        session.trust_env = False
+        headers = {'X-Auth-Token': key.strip()}
+        url = f"https://api.football-data.org/v4/matches?dateFrom={date_from}&dateTo={date_to}"
+        resp = session.get(url, headers=headers, timeout=10)
+        if resp.status_code == 200:
+            data = resp.json()
+            matches = data.get('matches', [])
+            with open(FD_ORG_CACHE_FILE, 'w', encoding='utf-8') as f:
+                json.dump({'matches': matches, 'fetched_at': fetch_time_str}, f)
+            return matches, fetch_time_str
+    except Exception as e:
+        print(f"Notice: football-data.org fetch error ({e}); using cache.")
+
+    if FD_ORG_CACHE_FILE.exists():
+        try:
+            with open(FD_ORG_CACHE_FILE, 'r', encoding='utf-8') as f:
+                cached = json.load(f)
+                return cached.get('matches', []), cached.get('fetched_at', fetch_time_str)
+        except Exception:
+            pass
+
+    return [], fetch_time_str
+
+
+def get_custom_fixtures(db_path: Path = DEFAULT_DB_PATH) -> List[Dict[str, Any]]:
+    """Loads user-added custom fixtures from SQLite."""
+    init_custom_fixtures_table(db_path)
+    fixtures = []
+    now_utc = get_now_utc()
+    try:
+        with sqlite3.connect(db_path) as conn:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute("SELECT * FROM custom_fixtures ORDER BY kickoff_utc ASC;").fetchall()
+            for r in rows:
+                k_utc = r['kickoff_utc']
+                try:
+                    dt = datetime.fromisoformat(k_utc.replace("Z", "+00:00"))
+                    if dt.tzinfo is None:
+                        dt = dt.replace(tzinfo=timezone.utc)
+                    # Filter out matches in the past
+                    if dt < now_utc + timedelta(minutes=10):
+                        continue
+                except Exception:
+                    continue
+
+                fixtures.append({
+                    'id': r['id'],
+                    'match_name': r['match_name'],
+                    'home_team': r['home_team'],
+                    'away_team': r['away_team'],
+                    'league': r['league'],
+                    'league_code': r['league_code'],
+                    'kickoff_utc': dt.isoformat(),
+                    'home_odds': r['home_odds'],
+                    'draw_odds': r['draw_odds'],
+                    'away_odds': r['away_odds'],
+                    'source': "manual_entry",
+                    'is_custom': True
+                })
+    except Exception as e:
+        print(f"Notice: loading custom fixtures error ({e})")
+    return fixtures
+
+
+def add_custom_fixture(
+    match_name: str,
+    home_team: str,
+    away_team: str,
+    league: str,
+    kickoff_utc: str,
+    home_odds: float,
+    draw_odds: float,
+    away_odds: float,
+    db_path: Path = DEFAULT_DB_PATH
+) -> Dict[str, Any]:
+    """Saves a custom fixture and odds into SQLite."""
+    init_custom_fixtures_table(db_path)
+    fix_id = f"custom_fix_{int(time.time())}_{abs(hash(match_name)) % 10000}"
+    league_code = "CUSTOM"
+    for div_c, div_name in LEAGUE_DIV_MAP.items():
+        if div_name.lower() in league.lower():
+            league_code = div_c
+            break
+
+    with sqlite3.connect(db_path) as conn:
+        conn.execute("""
+        INSERT INTO custom_fixtures (id, match_name, home_team, away_team, league, league_code, kickoff_utc, home_odds, draw_odds, away_odds, source)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, 'manual_entry');
+        """, (fix_id, match_name, home_team, away_team, league, league_code, kickoff_utc, home_odds, draw_odds, away_odds))
+        conn.commit()
+
+    return {
+        'id': fix_id,
+        'match_name': match_name,
+        'home_team': home_team,
+        'away_team': away_team,
+        'league': league,
+        'league_code': league_code,
+        'kickoff_utc': kickoff_utc,
+        'home_odds': home_odds,
+        'draw_odds': draw_odds,
+        'away_odds': away_odds,
+        'source': "manual_entry"
+    }
 
 
 def get_data_health_stats(db_path: Path = DEFAULT_DB_PATH) -> Dict[str, Any]:
     """
-    Computes all fields for the Data Health Strip:
-    - Latest match date in SQLite history DB
-    - Fixtures file fetch time & STALE flag (> 24h)
-    - Next kickoff in UTC, WAT, and relative countdown
-    - Total upcoming fixtures count within 7 days
+    Computes all fields for Data Health Strip and Phase 4.4 Data Provenance:
+    - Raw row count of fixtures.csv
+    - Rows per league in fixtures.csv
+    - Coverage breakdown (CL, PL, ELC, PD, SA, etc.)
+    - Missing competitions explanation
+    - Latest DB match date and upcoming matches count
     """
     # 1. DB history stats
     latest_db_date = "Unknown"
     total_db_matches = 0
-    if db_path.exists():
+    db_p = Path(db_path) if db_path else Path("data/edgescout.db")
+    if db_p.exists():
         try:
-            with sqlite3.connect(db_path) as conn:
+            with sqlite3.connect(db_p) as conn:
                 row = conn.execute("SELECT MAX(match_date), COUNT(*) FROM matches;").fetchone()
                 if row and row[0]:
-                    # Format e.g. '2 Nov 2026'
                     dt_db = datetime.strptime(row[0], "%Y-%m-%d")
                     latest_db_date = f"{dt_db.day} {dt_db.strftime('%b %Y')}"
                     total_db_matches = row[1]
         except Exception:
             pass
 
-    # 2. Fixtures cache freshness
+    # 2. fixtures.csv stats
+    csv_rows_count = 0
+    csv_league_breakdown = {}
+    csv_fetch_time = "Unknown"
+    is_stale = False
+    age_hours = 0.0
+
     if FIXTURES_CACHE_FILE.exists():
-        mtime = FIXTURES_CACHE_FILE.stat().st_mtime
-    else:
-        mtime = time.time()
+        try:
+            df = pd.read_csv(FIXTURES_CACHE_FILE)
+            csv_rows_count = len(df)
+            if 'Div' in df.columns:
+                for div, count in df['Div'].value_counts().items():
+                    name = LEAGUE_DIV_MAP.get(str(div), str(div))
+                    csv_league_breakdown[name] = int(count)
 
-    age_seconds = time.time() - mtime
-    fetch_dt = datetime.fromtimestamp(mtime, timezone.utc)
-    is_stale = age_seconds > 86400 # > 24 hours
+            mtime = FIXTURES_CACHE_FILE.stat().st_mtime
+            age_sec = time.time() - mtime
+            age_hours = round(age_sec / 3600.0, 1)
+            is_stale = age_sec > 86400
+            fetch_dt = datetime.fromtimestamp(mtime, timezone.utc)
+            csv_fetch_time = fetch_dt.strftime('%H:%M UTC')
+        except Exception:
+            pass
 
-    # 3. Next kickoff & upcoming fixtures count
-    df = load_fixtures_dataframe()
-    now_utc = get_now_utc()
-    upcoming_kickoffs = []
+    # 3. football-data.org stats
+    fd_key_set = bool(os.getenv('FOOTBALL_DATA_ORG_KEY') or os.getenv('FOOTBALL_DATA_KEY'))
+    fd_matches_count = 0
+    fd_comp_breakdown = {}
+    if FD_ORG_CACHE_FILE.exists():
+        try:
+            with open(FD_ORG_CACHE_FILE, 'r', encoding='utf-8') as f:
+                fd_data = json.load(f)
+                matches = fd_data.get('matches', [])
+                fd_matches_count = len(matches)
+                for m in matches:
+                    c_name = m.get('competition', {}).get('name', 'Unknown')
+                    fd_comp_breakdown[c_name] = fd_comp_breakdown.get(c_name, 0) + 1
+        except Exception:
+            pass
 
-    if not df.empty and 'Date' in df.columns:
-        for _, row in df.iterrows():
-            dt = parse_kickoff_to_utc(str(row.get('Date', '')), str(row.get('Time', '')))
-            if dt and dt >= now_utc + timedelta(minutes=10) and dt <= now_utc + timedelta(days=7):
-                upcoming_kickoffs.append(dt)
+    # 4. Custom fixtures count
+    custom_count = len(get_custom_fixtures(db_path))
 
-    upcoming_kickoffs.sort()
-    upcoming_count = len(upcoming_kickoffs)
-
-    if upcoming_kickoffs:
-        next_dt = upcoming_kickoffs[0]
-        next_kickoff_utc = next_dt.isoformat()
-        next_kickoff_wat = format_wat(next_dt)
-        next_countdown = format_countdown(next_dt, now_utc)
-    else:
-        next_kickoff_utc = None
-        next_kickoff_wat = "No fixtures scheduled"
-        next_countdown = ""
+    # Explanation of coverage & missing competitions
+    coverage_explanation = (
+        f"fixtures.csv contains {csv_rows_count} matches for the active midweek slate. "
+        "football-data.co.uk updates on a rolling basis; major weekend league odds (Premier League, La Liga, Serie A, Bundesliga) are published on Thursday/Friday. "
+        + (f"football-data.org provides {fd_matches_count} upcoming 7-day fixtures (including UEFA Champions League). " if fd_key_set else "football-data.org API key not configured. ")
+        + "Note: UEFA Europa League (EL) and Conference League (ECL) are restricted to paid tiers on football-data.org. Use the manual 'Add Fixture' form to enter any match."
+    )
 
     return {
         'latest_match_date': latest_db_date,
         'total_db_matches': total_db_matches,
-        'fixtures_fetched_at': fetch_dt.isoformat(),
-        'fixtures_fetch_time_label': fetch_dt.strftime('%H:%M UTC'),
+        'fixtures_csv_rows': csv_rows_count,
+        'fixtures_csv_leagues': csv_league_breakdown,
+        'fixtures_fetch_time_label': csv_fetch_time,
         'is_stale': is_stale,
-        'age_hours': round(age_seconds / 3600.0, 1),
-        'next_kickoff_utc': next_kickoff_utc,
-        'next_kickoff_wat': next_kickoff_wat,
-        'next_countdown': next_countdown,
-        'upcoming_count': upcoming_count
+        'age_hours': age_hours,
+        'football_data_org_key_set': fd_key_set,
+        'football_data_org_matches': fd_matches_count,
+        'football_data_org_leagues': fd_comp_breakdown,
+        'custom_fixtures_count': custom_count,
+        'missing_competitions': [
+            'UEFA Europa League (Tier 3/paid on football-data.org)',
+            'UEFA Europa Conference League (Tier 3/paid on football-data.org)',
+            'Domestic cups (FA Cup, Copa del Rey, DFB-Pokal)'
+        ],
+        'coverage_explanation': coverage_explanation
     }
